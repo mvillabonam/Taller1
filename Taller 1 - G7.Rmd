@@ -1,0 +1,190 @@
+---
+title: "Taller 1 - BD&ML Grupo 7"
+author: "Grupo 7"
+date: "2025-02-02"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+gc(rm(list = ls()))
+
+knitr::opts_chunk$set(echo = TRUE)
+
+require(pacman)
+p_load(stringr, # html to text
+       tidyverse, # tidy-data
+       skimr, # summary data
+       rvest, # Web scrapping
+       dplyr, # managing tables
+       corrplot,#Correlation plot
+       reshape2) # Long format for tables 
+```
+
+## 1. Introduction
+
+In the public sector, accurate reporting of individual income is
+critical for computing taxes. However, tax fraud of all kinds has always
+been a significant issue. According to the Internal Revenue Service
+(IRS), about 83.6% of taxes are paid voluntarily and on time in the
+US.1. One of the causes of this gap is the under-reporting of incomes by
+individuals. An income predicting model could potentially assist in
+agging cases of fraud that could lead to the reduction of the gap.
+Furthermore, an income prediction model can help identify vulnerable
+individuals and families that may need further assistance.
+
+The objective of the problem set is to generate a predictive model on
+income levels based on Bogota's information about employed adults (\>18
+years old). Thus, we can predict levels of income and then estimate a
+level of tax payment. For this objective the survey of 2018 GEIH from
+DANE, will be used.
+
+(Describe the process of acquiring the data and if there are any
+restrictions to accessing/scraping these data.) For scrapping this data
+we will use ignaciomsarmiento repository and rvest to read the htmls. As
+this data frames are html tables, we will also use dplyr.
+
+<div>
+
+```{r Scrapping}
+    # Link
+    base <- "https://ignaciomsarmiento.github.io/GEIH2018_sample/pages/geih_"
+    htmls <- paste0(base,"page_",1:10, ".html")
+
+    tables_list <- list()
+    for (url in htmls) {
+      web_page <- read_html(url)
+      table <- web_page %>%
+        html_nodes("table.table-striped") %>%
+        html_table(fill = TRUE)
+      tables_list[[url]] <- table
+    }
+
+    db = bind_rows(tables_list) %>% select(-...1)
+    rm(tables_list,web_page,table,base,htmls,url)
+```
+
+</div>
+
+2.  Describe the data briefly, including its purpose, and any other
+    relevant information.
+
+## 2. Data proccessing
+
+We will use the definition the variable "ocu" already included on the data set 
+which takes value 1 if the person is occupied (employed) and 0 otherwise.
+
+```{r Cleaning of data set, echo=FALSE}
+# Filtering > 18 and occupied
+db2 <- db %>% filter(age > 18, ocu == 1)
+
+# Framing Missing Values
+Nobs <- nrow(db2) 
+db_miss <- data.frame(
+  Variable = names(db2),
+  n_missing = colSums(is.na(db2)),
+  p_missing = round(colSums(100*is.na(db2))/Nobs,2)
+) 
+rownames(db_miss) <- NULL
+
+# Attaching question content
+question <- read_html("https://ignaciomsarmiento.github.io/GEIH2018_sample/dictionary.html")
+question <- question %>%
+        html_nodes("table") %>%
+        html_table(fill = TRUE)
+question = bind_rows(question)
+db_miss <- left_join(question, db_miss, by = "Variable")
+db_miss <- db_miss %>% arrange(desc(p_missing)) %>% filter(p_missing != 0) 
+
+# As we can see, almost 99/177 variables have more than 20% of the sample missing. 
+# Yet, many of these variables are associated with non-occupied people and are not
+# relevant for this exercise. Others, are the same variable with different scales 
+# (example: monthly salary vs hourly salary). Thus, we're only going to keep the following variables:
+
+db2 <- db2 %>%
+  select(p6750,p7505, y_ingLab_m, y_salary_m, y_total_m, impa, isa, iof1, iof2, iof3h, iof3i, iof6, 
+         ingtotes, ingtotob, ingtot, y_bonificaciones_m, y_gananciaNeta_m, 
+         y_gananciaNetaAgro_m, y_primaNavidad_m, y_primaServicios_m, y_primaVacaciones_m, 
+         maxEducLevel, directorio, secuencia_p, orden, clase, dominio, mes, estrato1, 
+         sex, age, p6050, p6090, p6100, oficio, fex_c, depto, fex_dpto, fweight, informal)
+
+# For trying to avoid colinearity, we're going to check if two variables contain the same information.
+# so that we only keep the most relevant one.
+db3 <- db2 %>% mutate_all(~ifelse(!is.na(.), 1, 0))
+db3 <-  db3 %>%  select(which(apply(db3, 2, sd) > 0))
+
+M <- cor(db3)
+corrplot(M,tl.cex = 0.7, cl.cex = 0.8) 
+M_long <-melt(M,na.rm = TRUE)
+M_long <- M_long %>%
+  filter(abs(value) > 0.4, Var1 != Var2) %>%  
+  arrange(desc(abs(value)))
+
+# We can see p6750 has perfect correlation with y_gananciaNeta_m and y_salary_m and y_ingLab_m 
+# Thus, as p6750 as 70% of p6750 values are missing we're going to drop this variable. 
+
+db2 <- db2 %>% select(-p6750)
+
+# Deciding between y_salary_m and y_ingLab_M. For this, we're going to evaluate the values the variable takes on the following quanties.
+quantiles <- c(0, 0.25, 0.50, 0.75, 1.0)
+quant_table <- as.data.frame(t(sapply(list(y_salary_m = db2$y_salary_m, 
+                                           y_ingLab_m = db2$y_ingLab_m), 
+                                      quantile, probs = quantiles, na.rm = TRUE)))
+
+# Add a row for the number of NAs
+quant_table <- rbind(quant_table, "NAs_y_salary_m" = sum(is.na(db2$y_salary_m)))
+quant_table <- rbind(quant_table, "NAs_y_ingLab_m" = sum(is.na(db2$y_ingLab_m)))
+print(quant_table)
+
+# As differences between this two variables are considerable on the last chuck (the highest incomes) we're not going to remove them, before working with it's NAs values.
+
+# As 40.32% of the values are missing we're going to fill the missing values using Level of Education 
+# as a proxy (Mincer, 1958)
+
+# Max - Level of Education.
+# Filling with mean as only 10% of values are missing
+mode_edu <- as.numeric(names(sort(table(db2$maxEducLevel), decreasing = TRUE)[1]))
+db2 <- db2  %>%
+  mutate(maxEducLevel = ifelse(is.na(maxEducLevel) == TRUE, mode_edu , maxEducLevel))
+
+# Creating the dummy variable for regressing over y_salary_m and y_ingLab_m
+db2$maxEducLevel<- factor(db2$maxEducLevel)
+dummy_maxEducLevel <- as.data.frame(model.matrix(~ maxEducLevel - 1, data = db2))
+db2 <- cbind(db2, dummy_maxEducLevel)
+
+
+### y_salary_m
+lM1 <- lm(y_salary_m ~ ingtot + sex+ maxEducLevel3 + maxEducLevel4 + maxEducLevel5 + maxEducLevel6 + maxEducLevel7 , data = db2)
+summary(lM1)
+db2$y_salary_m_P <- predict(lM1, newdata = db2)
+db2 <-  db2 %>%  mutate(y_salary_m = ifelse(is.na(y_salary_m), y_salary_m_P, y_salary_m))
+
+### y_ingLab_m
+lM2 <- lm(y_ingLab_m ~ ingtot + sex+ maxEducLevel3 + maxEducLevel4 + maxEducLevel5 + maxEducLevel6 + maxEducLevel7 , data = db2)
+summary(lM2)
+db2$y_ingLab_m <- predict(lM1, newdata = db2)
+db2 <-  db2 %>%  mutate(y_ingLab_m = ifelse(is.na(y_ingLab_m), y_ingLab_m, y_salary_m))
+
+
+## drop recently created variables
+db<-  db %>% select(- maxEducLevel1, - maxEducLevel2, - maxEducLevel3, - maxEducLevel4, - maxEducLevel5, - maxEducLevel6, - maxEducLevel7,-predicted_y )
+
+rm(db3,db_miss,question, M, M_long,q3_salary,q3_ingLab,filtered_salary, filtered_ingLab,Nobs)
+```
+
+3.  Describe the data cleaning process
+4.  Descriptive the variables included in your analysis.
+
+At a minimum, you should include a descriptive statistics table with its
+interpretation. However, I expect a deep analysis that helps the reader
+understand the data, its variation, and the justification for your data
+choices. Use your professional knowledge to add value to this section.
+Do not present it as a "\\dry" list of ingredients
+
+## 3. Age wage profile
+
+```{r Age wage Regression, echo=FALSE}
+```
+
