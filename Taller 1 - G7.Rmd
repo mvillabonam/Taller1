@@ -188,3 +188,6 @@ Do not present it as a "\\dry" list of ingredients
 ```{r Age wage Regression, echo=FALSE}
 ```
 
+
+
+##4. The gender earnings
