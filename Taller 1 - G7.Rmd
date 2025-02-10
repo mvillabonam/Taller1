@@ -219,46 +219,40 @@ Let’s see how the conditional wage gap fix it.
 
 ```{r Conditional Gender Wage Gap}
 
-
 # Conditional Gender Wage Gap
-conditional_model <- lm(log(y_salary_m) ~ female + age + maxEducLevel + informal+estrato1+p6050, data = db2)
+conditional_model <- lm(log(y_salary_m) ~ female + age + maxEducLevel + informal+estrato1, data = db2)
 summary(conditional_model)
 
 #Estimation with Frisch-Waugh-Lovell Theorem (FWL)
+# Fit the control model (without female)
+conditional_model <- lm(log(y_salary_m) ~  age + maxEducLevel + informal + estrato1, data = db2)
+summary(conditional_model)
+db2$residuals_control <- residuals(conditional_model)
 
-# Fit the control model for y_salary_m
-controls_model_y <- lm(log(y_salary_m) ~ age + maxEducLevel + depto + oficio+p6050, data = db2)
-residuals_controls_y <- residuals(controls_model_y)
-
-#Fit the control model for sex
-controls_model_sex <- lm(sex ~ age + maxEducLevel + depto + oficio, data = db2)
-residuals_controls_sex <- residuals(controls_model_sex)
-
-#FWL regression
-fwl_model <- lm(residuals_controls_y ~ residuals_controls_sex)
+#Estimate the effect of female using the residuals
+fwl_model <- lm(residuals_control ~ female, data = db2)
 summary(fwl_model)
 
-
-#Estimation using FWL with bootstrap
-
-fwl_function <- function(data, indices) {
-    resampled_data <- data[indices, ]
-    controls_model_y <- lm(log(y_salary_m) ~ age + maxEducLevel + depto + oficio, data = resampled_data)
-    residuals_controls_y <- residuals(controls_model_y)
-
-    controls_model_sex <- lm(sex ~ age + maxEducLevel + depto + oficio, data = resampled_data)
-    residuals_controls_sex <- residuals(controls_model_sex)
-    
-    fwl_model <- lm(residuals_controls_y ~ residuals_controls_sex)
-    return(coef(fwl_model)["residuals_controls_sex"])
+# Function to perform the bootstrap
+fwl_bootstrap <- function(data, indices) {
+  # Resample the data
+  boot_data <- data[indices, ]
+  control_model_boot <- lm(log(y_salary_m) ~ age + maxEducLevel + informal + estrato1, data = boot_data)
+  boot_data$residuals_control <- residuals(control_model_boot)
+  fwl_model_boot <- lm(residuals_control ~ female, data = boot_data)
+  return(coef(fwl_model_boot)["female"])
 }
-bootstrap_results <- boot(data = db2, statistic = fwl_function, R = 1000)
 
-# Display bootstrap results
+# Run the bootstrap with 1000 resamples
+set.seed(123)  # For reproducibility
+bootstrap_results <- boot(data = db2, statistic = fwl_bootstrap, R = 1000)
+
+# Get the bootstrap estimate and standard error
 bootstrap_estimate <- mean(bootstrap_results$t)
 bootstrap_se <- sd(bootstrap_results$t)
 
-cat("Bootstrap Estimate of sex coefficient:", bootstrap_estimate, "\n")
-cat("Bootstrap Standard Error:", bootstrap_se, "\n")
+# Display the results
+cat("Bootstrap estimate for the gender wage gap: ", bootstrap_estimate, "\n")
+cat("Bootstrap standard error: ", bootstrap_se, "\n")
 
 ```
