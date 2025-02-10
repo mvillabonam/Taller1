@@ -209,7 +209,13 @@ head(db2)
 model_unconditional <- lm(log(y_salary_m) ~ female, data = db2)
 summary(model_unconditional)
 ```
-The coefficient of -0.23897 indicates that, on average, women have approximately 23.9% lower wages than men. However, the model's low explanatory power suggests that gender alone doesn’t explain much of the variation in wages, this implies that other factors not included in this model may play a significant role in determining wages. Let’s see how the conditional wage gap fix it.
+The coefficient of -0.23897 indicates that, on average, 
+women have approximately 23.9% lower wages than men. 
+However, the model's low explanatory power suggests that
+gender alone doesn’t explain much of the variation in wages,
+this implies that other factors not included in this model may
+play a significant role in determining wages.
+Let’s see how the conditional wage gap fix it.
 
 ```{r Conditional Gender Wage Gap}
 
