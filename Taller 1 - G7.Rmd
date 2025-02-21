@@ -220,20 +220,23 @@ Let’s see how the conditional wage gap fix it.
 ```{r Conditional Gender Wage Gap}
 
 # Conditional Gender Wage Gap
-conditional_model <- lm(log(y_salary_m) ~ female + age + maxEducLevel + informal+estrato1, data = db2)
+conditional_model <- lm(log(y_salary_m) ~ female + age + I(age^2) + maxEducLevel + informal+estrato1, data = db2)
 summary(conditional_model)
 
 #Estimation with Frisch-Waugh-Lovell Theorem (FWL)
 # Fit the control model (without female)
-conditional_model <- lm(log(y_salary_m) ~  age + maxEducLevel + informal + estrato1, data = db2)
-summary(conditional_model)
-db2$residuals_control <- residuals(conditional_model)
+controls <- lm(log(y_salary_m) ~ age + I(age^2) + maxEducLevel + informal + estrato1, data = db2)
+residuals_w <- residuals(controls)
 
-#Estimate the effect of female using the residuals
-fwl_model <- lm(residuals_control ~ female, data = db2)
-summary(fwl_model)
+gender <- lm(female ~ age + I(age^2) + maxEducLevel + informal + estrato1, data = db2)
+residuals_x <- residuals(gender)
 
-# Function to perform the bootstrap
+#The effect of female using the residuals
+fwl_model_1 <- lm(residuals_w ~ residuals_x)
+summary(fwl_model_1)
+
+
+# Performing the bootstrap
 fwl_bootstrap <- function(data, indices) {
   # Resample the data
   boot_data <- data[indices, ]
@@ -243,16 +246,21 @@ fwl_bootstrap <- function(data, indices) {
   return(coef(fwl_model_boot)["female"])
 }
 
-# Run the bootstrap with 1000 resamples
-set.seed(123)  # For reproducibility
-bootstrap_results <- boot(data = db2, statistic = fwl_bootstrap, R = 1000)
+# Bootstrap with 1000 resamples
+set.seed(100)  # For reproducibility
+fwl_boot_results <- boot(data = db2, statistic = fwl_bootstrap, R = 1000)
 
-# Get the bootstrap estimate and standard error
-bootstrap_estimate <- mean(bootstrap_results$t)
-bootstrap_se <- sd(bootstrap_results$t)
+# Bootstrap estimate and standard error
+boot_estimates <- fwl_boot_results$t
+boot_se <- sd(boot_estimates)
+boot_mean <- mean(boot_estimates)
 
-# Display the results
-cat("Bootstrap estimate for the gender wage gap: ", bootstrap_estimate, "\n")
-cat("Bootstrap standard error: ", bootstrap_se, "\n")
+# Comparing the results
+results <- data.frame(
+  Method = c("FWL", "Bootstrap"),
+  Estimate = c(coef(fwl_model_1)["residuals_x"], boot_mean),
+  StdError = c(summary_fwl$coefficients["residuals_x", "Std. Error"], boot_se)
+)
+print(results)
 
 ```
