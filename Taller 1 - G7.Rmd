@@ -9,8 +9,11 @@ p_load(stringr, # html to text
        rvest, # Web scrapping
        dplyr, # managing tables
        corrplot,#Correlation plot
-       reshape2, # Long format for table 
-       stargazer) 
+       reshape2,
+       boot,
+       car,
+       lmtest,
+       caret) 
 ```
 
 ## 1. Introduction
