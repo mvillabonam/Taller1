@@ -179,3 +179,37 @@ for(i in seq_along(obs_vars)) {
 # of observe and imputed
 ```
 
+
+## 4. The gender earnings GAP
+```{r Unconditional Gender Wage Gap}
+
+# We are transforming the 'sex' variable to create a new 'Female' indicator where
+#female = 1 for females (sex = 0) and Female = 0 for males (sex = 1) (According to data dictionary)
+
+db2 <- db2 %>%
+  mutate(female = ifelse(sex == 0, 1, 0)) 
+head(db2)
+
+model_unconditional <- lm(log(y_salary_m) ~ female, data = db2)
+summary(model_unconditional)
+
+
+#Gauss Marcov Theorem
+#  Linearity Check:
+ggplot(data = data.frame(Fitted = fitted(model_unconditional), Residuals = residuals(model_unconditional)), 
+       aes(x = Fitted, y = Residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Residuals vs Fitted Values", x = "Fitted Values", y = "Residuals")
+
+# Exogeneity: Mean of residuals should be zero
+mean(residuals(model_unconditional))
+
+# Homoscedasticity: Breusch-Pagan Test
+bptest(model_unconditional)  #P-value < 0.05 suggests rejecting the null hypothesis
+
+# No Autocorrelation: Durbin-Watson Test
+dwtest(model_unconditional) # P-value < 0.05 suggests rejecting the null hypothesis
+
+```
+The statistical significance of the model is evident from the extremely low p-values associated with both the Breusch-Pagan test for heteroscedasticity and the Durbin-Watson test for autocorrelation, these results indicate strong evidence against the null hypotheses, revealing violations in the homoscedasticity and independence of errors assumptions, respectively. Economically, the model's findings suggest that the gender variable (female) plays a significant role in explaining variations in the log-transformed salary, highlighting potential gender disparities in earnings, however, the presence of heteroscedasticity and autocorrelation implies that traditional inference may be flawed, necessitating robust econometric techniques to ensure the validity of the estimated effects.
