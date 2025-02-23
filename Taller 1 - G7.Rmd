@@ -1,16 +1,5 @@
----
-title: "Taller 1 - BD&ML Grupo 7"
-author: "Grupo 7"
-date: "2025-02-02"
-output: html_document
-editor_options: 
-  markdown: 
-    wrap: 72
----
-
 ```{r setup, include=FALSE}
 gc(rm(list = ls()))
-
 knitr::opts_chunk$set(echo = TRUE)
 
 require(pacman)
@@ -20,7 +9,8 @@ p_load(stringr, # html to text
        rvest, # Web scrapping
        dplyr, # managing tables
        corrplot,#Correlation plot
-       reshape2) # Long format for tables 
+       reshape2, # Long format for table 
+       stargazer) 
 ```
 
 ## 1. Introduction
@@ -41,14 +31,14 @@ years old). Thus, we can predict levels of income and then estimate a
 level of tax payment. For this objective the survey of 2018 GEIH from
 DANE, will be used.
 
-(Describe the process of acquiring the data and if there are any
+2.a) (Describe the process of acquiring the data and if there are any
 restrictions to accessing/scraping these data.) For scrapping this data
 we will use ignaciomsarmiento repository and rvest to read the htmls. As
 this data frames are html tables, we will also use dplyr.
 
 <div>
 
-```{r Scrapping}
+```{r 2.b) Scrapping}
     # Link
     base <- "https://ignaciomsarmiento.github.io/GEIH2018_sample/pages/geih_"
     htmls <- paste0(base,"page_",1:10, ".html")
@@ -73,14 +63,16 @@ this data frames are html tables, we will also use dplyr.
 
 ## 2. Data proccessing
 
-We will use the definition the variable "ocu" already included on the data set 
-which takes value 1 if the person is occupied (employed) and 0 otherwise.
+We will use the definition the variable "ocu" already included on the
+data set which takes value 1 if the person is occupied (employed) and 0
+otherwise.
 
 ```{r Cleaning of data set, echo=FALSE}
 # Filtering > 18 and occupied
 db2 <- db %>% filter(age > 18, ocu == 1)
 
-# Framing Missing Values
+#------------ FRAMING MISSING VALUES -------------------------------------------
+
 Nobs <- nrow(db2) 
 db_miss <- data.frame(
   Variable = names(db2),
@@ -88,6 +80,7 @@ db_miss <- data.frame(
   p_missing = round(colSums(100*is.na(db2))/Nobs,2)
 ) 
 rownames(db_miss) <- NULL
+View(db_miss)
 
 # Attaching question content
 question <- read_html("https://ignaciomsarmiento.github.io/GEIH2018_sample/dictionary.html")
@@ -97,94 +90,89 @@ question <- question %>%
 question = bind_rows(question)
 db_miss <- left_join(question, db_miss, by = "Variable")
 db_miss <- db_miss %>% arrange(desc(p_missing)) %>% filter(p_missing != 0) 
+db_miss
 
 # As we can see, almost 99/177 variables have more than 20% of the sample missing. 
 # Yet, many of these variables are associated with non-occupied people and are not
 # relevant for this exercise. Others, are the same variable with different scales 
 # (example: monthly salary vs hourly salary). Thus, we're only going to keep the following variables:
 
-db2 <- db2 %>%
-  select(p6750,p7505, y_ingLab_m, y_salary_m, y_total_m, impa, isa, iof1, iof2, iof3h, iof3i, iof6, 
-         ingtotes, ingtotob, ingtot, y_bonificaciones_m, y_gananciaNeta_m, 
-         y_gananciaNetaAgro_m, y_primaNavidad_m, y_primaServicios_m, y_primaVacaciones_m, 
-         maxEducLevel, directorio, secuencia_p, orden, clase, dominio, mes, estrato1, 
-         sex, age, p6050, p6090, p6100, oficio, fex_c, depto, fex_dpto, fweight, informal)
-
-# For trying to avoid colinearity, we're going to check if two variables contain the same information.
-# so that we only keep the most relevant one.
-db3 <- db2 %>% mutate_all(~ifelse(!is.na(.), 1, 0))
-db3 <-  db3 %>%  select(which(apply(db3, 2, sd) > 0))
-
-M <- cor(db3)
-corrplot(M,tl.cex = 0.7, cl.cex = 0.8) 
-M_long <-melt(M,na.rm = TRUE)
-M_long <- M_long %>%
-  filter(abs(value) > 0.4, Var1 != Var2) %>%  
-  arrange(desc(abs(value)))
-
-# We can see p6750 has perfect correlation with y_gananciaNeta_m and y_salary_m and y_ingLab_m 
-# Thus, as p6750 as 70% of p6750 values are missing we're going to drop this variable. 
-
-db2 <- db2 %>% select(-p6750)
-
-# Deciding between y_salary_m and y_ingLab_M. For this, we're going to evaluate the values the variable takes on the following quanties.
-quantiles <- c(0, 0.25, 0.50, 0.75, 1.0)
-quant_table <- as.data.frame(t(sapply(list(y_salary_m = db2$y_salary_m, 
-                                           y_ingLab_m = db2$y_ingLab_m), 
-                                      quantile, probs = quantiles, na.rm = TRUE)))
-
-# Add a row for the number of NAs
-quant_table <- rbind(quant_table, "NAs_y_salary_m" = sum(is.na(db2$y_salary_m)))
-quant_table <- rbind(quant_table, "NAs_y_ingLab_m" = sum(is.na(db2$y_ingLab_m)))
-print(quant_table)
-
-# As differences between this two variables are considerable on the last chuck (the highest incomes) we're not going to remove them, before working with it's NAs values.
-
-# As 40.32% of the values are missing we're going to fill the missing values using Level of Education 
-# as a proxy (Mincer, 1958)
-
-# Max - Level of Education.
-# Filling with mean as only 10% of values are missing
-mode_edu <- as.numeric(names(sort(table(db2$maxEducLevel), decreasing = TRUE)[1]))
-db2 <- db2  %>%
-  mutate(maxEducLevel = ifelse(is.na(maxEducLevel) == TRUE, mode_edu , maxEducLevel))
-
-# Creating the dummy variable for regressing over y_salary_m and y_ingLab_m
-db2$maxEducLevel<- factor(db2$maxEducLevel)
-dummy_maxEducLevel <- as.data.frame(model.matrix(~ maxEducLevel - 1, data = db2))
-db2 <- cbind(db2, dummy_maxEducLevel)
+#db2 <- db2 %>%
+#  select(p6750,p7505, y_ingLab_m, y_salary_m, y_total_m, impa, isa, iof1, iof2, iof3h, iof3i, iof6, 
+#         ingtotes, ingtotob, ingtot, y_bonificaciones_m, y_gananciaNeta_m, 
+#         y_gananciaNetaAgro_m, y_primaNavidad_m, y_primaServicios_m, y_primaVacaciones_m, 
+#         maxEducLevel, directorio, secuencia_p, orden, clase, dominio, mes, estrato1, 
+#         sex, age, p6050, p6090, p6100, oficio, fex_c, depto, fex_dpto, fweight, informal)
 
 
-### y_salary_m
-lM1 <- lm(y_salary_m ~ ingtot + sex+ maxEducLevel3 + maxEducLevel4 + maxEducLevel5 + maxEducLevel6 + maxEducLevel7 , data = db2)
-summary(lM1)
-db2$y_salary_m_P <- predict(lM1, newdata = db2)
-db2 <-  db2 %>%  mutate(y_salary_m = ifelse(is.na(y_salary_m), y_salary_m_P, y_salary_m))
-
-### y_ingLab_m
-lM2 <- lm(y_ingLab_m ~ ingtot + sex+ maxEducLevel3 + maxEducLevel4 + maxEducLevel5 + maxEducLevel6 + maxEducLevel7 , data = db2)
-summary(lM2)
-db2$y_ingLab_m <- predict(lM1, newdata = db2)
-db2 <-  db2 %>%  mutate(y_ingLab_m = ifelse(is.na(y_ingLab_m), y_ingLab_m, y_salary_m))
+# We will keep all of this variables just to be sure the answers are consistent. For example: if an individual
+# answered they were occupied or employed a source of labor income should be perceived.
 
 
-## drop recently created variables
-db<-  db %>% select(- maxEducLevel1, - maxEducLevel2, - maxEducLevel3, - maxEducLevel4, - maxEducLevel5, - maxEducLevel6, - maxEducLevel7,-predicted_y )
+#------------ DATA CLEANING PROCESS: CONSISTENCY -------------------------------
 
-rm(db3,db_miss,question, M, M_long,q3_salary,q3_ingLab,filtered_salary, filtered_ingLab,Nobs)
-```
+# Data description: Consistency of answers. Occupied must be equal to the sum of formal + informal. 
+# We'll. Employed vs Informal.   (Check)
+Occupied_description <- db2 %>%
+  group_by(p6240) %>%
+  summarise(across(c(ocu, formal, informal), sum, na.rm = TRUE)) %>%
+  ungroup() %>%
+  add_row(p6240 = NA, 
+          ocu = sum(.$ocu), 
+          formal = sum(.$formal), 
+          informal = sum(.$informal)) %>%
+  mutate(Occupation = if_else(is.na(p6240), "Total",
+                              recode(as.character(p6240),
+                                     `6` = "Other activity",
+                                     `5` = "Permanently unable to work",
+                                     `4` = "Domestic work",
+                                     `3` = "Studying",
+                                     `2` = "Looking for work",
+                                     `1` = "Working"))) %>%
+  select(Occupation, ocu, formal, informal) %>%
+  mutate(across(c(ocu, formal, informal), ~ . / last(ocu) * 100))
+Occupied_description <- Occupied_description[-c(7),]
+View(Occupied_description)
 
-3.  Describe the data cleaning process
-4.  Descriptive the variables included in your analysis.
+####  Export 
+Occupied_description <- Occupied_description %>%
+  mutate(across(c(ocu, formal, informal), ~ sprintf("%.2f", .x)))
+stargazer(Occupied_description, summary = FALSE, type = "latex", rownames = FALSE)
 
-At a minimum, you should include a descriptive statistics table with its
-interpretation. However, I expect a deep analysis that helps the reader
-understand the data, its variation, and the justification for your data
-choices. Use your professional knowledge to add value to this section.
-Do not present it as a "\\dry" list of ingredients
+# As we can see, most of income comes from either Working, Other activity or Domestic work. We're going to explore this income source individually. 
+# Now, eventhought 86% of the sample reported income came from work, 40% of the income data related to work seems to be missing. 
 
-## 3. Age wage profile
 
-```{r Age wage Regression, echo=FALSE}
+#------------ DATA CLEANING PROCESS: CHOOSING INCOME ---------------------------
+### On the first place we're going to check differences of imputed variables vs observed variables. 
+obs_vars <- c("ie", "imdi", "impa", "ingtot", "iof1", "iof2", "iof3h", "iof3i", "iof6", "isa")
+imp_vars <- c("iees", "imdies", "impaes", "ingtotes", "iof1es", "iof2es", "iof3hes", "iof3ies", "iof6es", "isaes")
+titles   <- c("Especie", "Labor income non-occupied", "Main Activity", "Total", 
+              "Interes and dividends", "Retirement", "Household Aid", "Institutional Aid", 
+              "Real State", "Second Activity")
+
+Stats <- mapply(function(ob, im, title) {
+  obs <- db[[ob]]; imp <- db[[im]]
+  q_obs <- quantile(obs, c(0.05, 0.25, 0.5, 0.75, 0.95), na.rm = TRUE)
+  q_imp <- quantile(imp, c(0.05, 0.25, 0.5, 0.75, 0.95), na.rm = TRUE)
+  data.frame(
+    Statistic = c("Mean", "SD", "NA values", paste0("Quantile_", c(5, 25, 50, 75, 95)), "p-value"),
+    Obs = c(mean(obs, na.rm = TRUE), sd(obs, na.rm = TRUE), sum(is.na(obs)), round(q_obs, 2), NA),
+    Imp = c(mean(imp, na.rm = TRUE), sd(imp, na.rm = TRUE), sum(is.na(imp)), round(q_imp, 2), round(t.test(obs, imp, paired = TRUE)$p.value, 4))
+  ) %>% rename_with(~ paste0(title, "_", sub("^(Obs|Imp)$", "\\1", .x)), Obs:Imp)
+}, obs_vars, imp_vars, titles, SIMPLIFY = FALSE)
+
+Obs_vs_Imp <- Reduce(function(x, y) merge(x, y, by = "Statistic", sort = FALSE), Stats)
+
+# As we observe Imputed variables complement observed values on certain 
+# observations. Thus, we will create a single subset that contains the imputed and the
+# observed data
+for(i in seq_along(obs_vars)) {
+  new_name <- paste0(obs_vars[i], "_oi")
+  db[[new_name]] <- ifelse(!is.na(db[[imp_vars[i]]]), db[[imp_vars[i]]], db[[obs_vars[i]]])
+}
+
+# We're goin to compare constructed vairables (starting with y) with our concatenation
+# of observe and imputed
 ```
 
