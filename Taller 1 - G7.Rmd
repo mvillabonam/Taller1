@@ -1,3 +1,13 @@
+---
+title: "Taller 1 - BD&ML Grupo 7"
+author: "Grupo 7"
+date: "2025-02-02"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
 ```{r setup, include=FALSE}
 gc(rm(list = ls()))
 knitr::opts_chunk$set(echo = TRUE)
@@ -9,11 +19,8 @@ p_load(stringr, # html to text
        rvest, # Web scrapping
        dplyr, # managing tables
        corrplot,#Correlation plot
-       reshape2,
-       boot,
-       car,
-       lmtest,
-       caret) 
+       reshape2, # Long format for table 
+       stargazer) 
 ```
 
 ## 1. Introduction
@@ -72,10 +79,9 @@ otherwise.
 
 ```{r Cleaning of data set, echo=FALSE}
 # Filtering > 18 and occupied
-db2 <- db %>% filter(age > 18, ocu == 1)
+db2 <- db %>% filter(age > 18, ocu == 1, dominio == "BOGOTA" )
 
 #------------ FRAMING MISSING VALUES -------------------------------------------
-
 Nobs <- nrow(db2) 
 db_miss <- data.frame(
   Variable = names(db2),
@@ -100,22 +106,16 @@ db_miss
 # relevant for this exercise. Others, are the same variable with different scales 
 # (example: monthly salary vs hourly salary). Thus, we're only going to keep the following variables:
 
-#db2 <- db2 %>%
-#  select(p6750,p7505, y_ingLab_m, y_salary_m, y_total_m, impa, isa, iof1, iof2, iof3h, iof3i, iof6, 
-#         ingtotes, ingtotob, ingtot, y_bonificaciones_m, y_gananciaNeta_m, 
-#         y_gananciaNetaAgro_m, y_primaNavidad_m, y_primaServicios_m, y_primaVacaciones_m, 
-#         maxEducLevel, directorio, secuencia_p, orden, clase, dominio, mes, estrato1, 
-#         sex, age, p6050, p6090, p6100, oficio, fex_c, depto, fex_dpto, fweight, informal)
-
-
-# We will keep all of this variables just to be sure the answers are consistent. For example: if an individual
-# answered they were occupied or employed a source of labor income should be perceived.
-
+db2 <- db2 %>%
+  select(y_ingLab_m, y_salary_m, y_total_m, ie, imdi, impa, isa, iof1, iof2, iof3h, iof3i, iof6, 
+         ingtotes, ingtotob, ingtot, y_bonificaciones_m, y_gananciaNeta_m, 
+         y_gananciaNetaAgro_m, y_primaNavidad_m, y_primaServicios_m, y_primaVacaciones_m, 
+         maxEducLevel, directorio, secuencia_p, orden, clase, dominio, mes, estrato1, 
+         sex, age, oficio, fex_c, depto, fex_dpto, fweight, informal)
 
 #------------ DATA CLEANING PROCESS: CONSISTENCY -------------------------------
 
-# Data description: Consistency of answers. Occupied must be equal to the sum of formal + informal. 
-# We'll. Employed vs Informal.   (Check)
+# Occupied must be equal to the sum of formal + informal. 
 Occupied_description <- db2 %>%
   group_by(p6240) %>%
   summarise(across(c(ocu, formal, informal), sum, na.rm = TRUE)) %>%
@@ -142,11 +142,10 @@ Occupied_description <- Occupied_description %>%
   mutate(across(c(ocu, formal, informal), ~ sprintf("%.2f", .x)))
 stargazer(Occupied_description, summary = FALSE, type = "latex", rownames = FALSE)
 
+
 # As we can see, most of income comes from either Working, Other activity or Domestic work. We're going to explore this income source individually. 
-# Now, eventhought 86% of the sample reported income came from work, 40% of the income data related to work seems to be missing. 
 
-
-#------------ DATA CLEANING PROCESS: CHOOSING INCOME ---------------------------
+#------------ DATA CLEANING PROCESS: CHOOSING INCOME -------------------------------------------
 ### On the first place we're going to check differences of imputed variables vs observed variables. 
 obs_vars <- c("ie", "imdi", "impa", "ingtot", "iof1", "iof2", "iof3h", "iof3i", "iof6", "isa")
 imp_vars <- c("iees", "imdies", "impaes", "ingtotes", "iof1es", "iof2es", "iof3hes", "iof3ies", "iof6es", "isaes")
@@ -154,29 +153,281 @@ titles   <- c("Especie", "Labor income non-occupied", "Main Activity", "Total",
               "Interes and dividends", "Retirement", "Household Aid", "Institutional Aid", 
               "Real State", "Second Activity")
 
+# ----> Check if imputed variables cover missing values of observed income.
+imp_vars2 <- c("iees", "imdies", "impaes", "iof1es", "iof2es", "iof3hes", "iof3ies", "iof6es", "isaes")
+missing_report <- c("cclasnr4", "cclasnr5", "cclasnr2", "cclasnr6", "cclasnr7", "cclasnr8", "cclasnr8", "cclasnr11", "cclasnr3")
+
+check <- function(db, imp_var, missing_var) {
+  nrow(db %>% filter(!is.na(!!sym(imp_var)), !!sym(missing_var) != 1)) == 0
+}
+mapply(function(imp, miss) check(db2, imp, miss), imp_vars2, missing_report)
+# (✓ Yes)
+
+# ----> Check the dispersion of imputed vs observed
 Stats <- mapply(function(ob, im, title) {
-  obs <- db[[ob]]; imp <- db[[im]]
+  obs <- db2[[ob]]; imp <- db2[[im]]
   q_obs <- quantile(obs, c(0.05, 0.25, 0.5, 0.75, 0.95), na.rm = TRUE)
   q_imp <- quantile(imp, c(0.05, 0.25, 0.5, 0.75, 0.95), na.rm = TRUE)
+  
   data.frame(
-    Statistic = c("Mean", "SD", "NA values", paste0("Quantile_", c(5, 25, 50, 75, 95)), "p-value"),
-    Obs = c(mean(obs, na.rm = TRUE), sd(obs, na.rm = TRUE), sum(is.na(obs)), round(q_obs, 2), NA),
-    Imp = c(mean(imp, na.rm = TRUE), sd(imp, na.rm = TRUE), sum(is.na(imp)), round(q_imp, 2), round(t.test(obs, imp, paired = TRUE)$p.value, 4))
+    Statistic = c("Mean", "SD", "NA values", paste0("Quantile_", c(5, 25, 50, 75, 95))),
+    Obs = c(mean(obs, na.rm = TRUE), sd(obs, na.rm = TRUE), sum(is.na(obs)), round(q_obs, 2)),
+    Imp = c(mean(imp, na.rm = TRUE), sd(imp, na.rm = TRUE), sum(is.na(imp)), round(q_imp, 2))
   ) %>% rename_with(~ paste0(title, "_", sub("^(Obs|Imp)$", "\\1", .x)), Obs:Imp)
 }, obs_vars, imp_vars, titles, SIMPLIFY = FALSE)
 
 Obs_vs_Imp <- Reduce(function(x, y) merge(x, y, by = "Statistic", sort = FALSE), Stats)
 
-# As we observe Imputed variables complement observed values on certain 
-# observations. Thus, we will create a single subset that contains the imputed and the
-# observed data
+# As we can see, imputed variables only cover certein NA values.
+# ----> Imputing
 for(i in seq_along(obs_vars)) {
   new_name <- paste0(obs_vars[i], "_oi")
   db[[new_name]] <- ifelse(!is.na(db[[imp_vars[i]]]), db[[imp_vars[i]]], db[[obs_vars[i]]])
 }
 
-# We're goin to compare constructed vairables (starting with y) with our concatenation
-# of observe and imputed
+# ----> Check constructed on data base vs Imputed+Observed: 
+
+# For avoiding colinearity, we're going to check if two variables contain the same information.
+# so that we only keep the most relevant one of the repeated information.
+
+#  CORRELATION PLOT
+db_temp <- db2 %>%
+  mutate(
+    Others = ie_oi,
+    Total = ingtot_oi,
+    `Informal` = ifelse(informal == 1, impa_oi, NA),
+    `First Activity` = ifelse(formal == 1, impa_oi, NA),
+    `Labor Income` = ifelse(p6240 == 4, impa_oi, NA)
+  ) %>%
+  select( Others, `Informal`, `First Activity`, Total,
+    `Labor Income` = iof6_oi, `M. Others` = y_otros_m,
+    `M. Formal Salary` = y_ingLab_m, `M. Total` = y_total_m,
+    `M. Labor Income` = y_vivienda_m)
+
+db_temp <- db_temp %>% 
+  mutate_all(~ ifelse(is.na(.) | . == 0, 0, 1))
+db_temp <-  db_temp %>%  select(which(apply(db_temp, 2, sd) > 0))
+
+M <- cor(db_temp, use = "pairwise.complete.obs")
+corrplot(
+  M, method = "color",         # Use colored squares
+  col = colorRampPalette(c("lightgray", "white", "blue"))(200),  
+  tl.col = "black", tl.srt = 90,   tl.cex = 0.8, cl.cex = 0.9,                
+  addCoef.col = "black", number.cex = 0.8,mar = c(2,2,2,2))
+
+# Given this results, we will proceed filling NA values of labor 
+# associated pre-constructed variables with the imputed data we elaborated.
+
+#  Choosing total: 
+t.test(db_temp$ingtot_oi, db_temp$y_total_m, paired = TRUE)
+
+db_temp <-  db2 %>%  select(ingtot_oi,y_total_m,)
+db_temp %>%
+  summarise(across(everything(), ~ sum(is.na(.) | (. == 0), na.rm = TRUE)))
+
+
+# Differences between the two group average 75.651 COP (significant) But ingtot_oi has less
+# missing values/values at 0, thus, we're choosing this variable.
+
+# ----------------------DATA STATISTICAL DESCRIPTION ---------------------------
+# Formal
+# Filter for formal workers
+Formal <- db2 %>%
+  filter(formal == 1) %>%  # Keep only rows where formal == 1
+  mutate(
+    Occupation = if_else(is.na(p6240), "Total",
+                         recode(as.character(p6240),
+                                `6` = "Other activity",
+                                `5` = "Permanently unable to work",
+                                `4` = "Domestic work",
+                                `3` = "Studying",
+                                `2` = "Looking for work",
+                                `1` = "Working"))
+  ) %>%
+  group_by(Occupation, sex) %>%  # Now also group by sex (gender)
+  summarise(
+    mean_age = mean(age, na.rm = TRUE),
+    mean_y_total_m = mean(ingtot_oi, na.rm = TRUE),
+    na_or_zero_percentage_total = sum(is.na(ingtot_oi) | ingtot_oi == 0) / n() * 100
+  ) %>%
+  ungroup()
+View(Formal)
+
+# Informal 
+Informal <- db2 %>%
+  filter(informal == 1) %>%  # Keep only rows where formal == 1
+  mutate(
+    Occupation = if_else(is.na(p6240), "Total",
+                         recode(as.character(p6240),
+                                `6` = "Other activity",
+                                `5` = "Permanently unable to work",
+                                `4` = "Domestic work",
+                                `3` = "Studying",
+                                `2` = "Looking for work",
+                                `1` = "Working"))
+  ) %>%
+  group_by(Occupation, sex) %>%  # Now also group by sex (gender)
+  summarise(
+    mean_age = mean(age, na.rm = TRUE),
+    mean_y_total_m = mean(ingtot_oi, na.rm = TRUE),
+    na_or_zero_percentage_total = sum(is.na(ingtot_oi) | ingtot_oi == 0) / n() * 100
+  ) %>%
+  ungroup()
+View(Informal)
+
+
+
+#--- METERLE ACÁ NIVEL EDUCATIVO
+
+
+
+# ------------------------- FILLING NA's VALUES ---------------------------------
+
+# ----> MAXEDUC LEVEL: Max - Level of Education.
+# Filling with mean as only 10% of values are missing
+mode_edu <- as.numeric(names(sort(table(db2$maxEducLevel), decreasing = TRUE)[1]))
+db2 <- db2  %>%
+  mutate(maxEducLevel = ifelse(is.na(maxEducLevel) == TRUE, mode_edu , maxEducLevel))
+
+# ----> LABORAL INCOME: FORMAL
+# We'll fill "y_salary_m" null values with the observed+imputed data
+# Creating the dummy variable for regressing over y_salary_m and y_ingLab_m
+
+# Mincer approx.
+db2$maxEducLevel<- factor(db2$maxEducLevel)
+dummy_maxEducLevel <- as.data.frame(model.matrix(~ maxEducLevel - 1, data = db2))
+db2 <- cbind(db2, dummy_maxEducLevel)
+lM1 <- lm(y_salary_m ~ impa_oi + sex + maxEducLevel3 + maxEducLevel4 
+          + maxEducLevel5 + maxEducLevel6 + maxEducLevel7 , data = db2)
+db2$y_salary_m_P <- predict(lM1, newdata = db2)
+db2 <- db2 %>%
+  mutate(y_salary_m = ifelse(is.na(y_salary_m) & p6240 == 1 & formal == 1, y_salary_m_P, y_salary_m))
+
+# ----> LABORAL INCOME: INFORMAL
+# 21.5% missing. 
+db2$y_gananciaIndep_m
+lM1 <- lm(y_gananciaIndep_m ~ impa_oi + informal + sex + maxEducLevel3 
+          + maxEducLevel4 + maxEducLevel5 + maxEducLevel6 + maxEducLevel7 , data = db2)
+db2$y_gananciaIndep_m_P <- predict(lM1, newdata = db2)
+db2 <- db2 %>%
+  mutate(y_gananciaIndep_m = ifelse(is.na(y_gananciaIndep_m) & p6240 == 1 & informal == 1, y_gananciaIndep_m_P, y_gananciaIndep_m))
+
+
+# ----> FILTERED DATA BASE
+
+# ----------------------COSAS QUE QUIERO METER ---------------------------------
+# Set up a 2x5 grid with extra top space for a common legend
+# Mirando a ver si sí va !! No he podido ponerle la leyenda en común FAK 
+# par(mfrow = c(2, 5), oma = c(0, 0, 5, 0))  
+# for(i in seq_along(obs_vars)) {
+#   # Extract observed and imputado data
+#   data_obs <- db[[obs_vars[i]]]
+#   data_imp <- db[[imp_vars[i]]]
+#   
+#   # Exclude outliers based on 5th–95th percentiles
+#   q_obs <- quantile(data_obs, probs = c(0.05, 0.95), na.rm = TRUE)
+#   data_obs <- data_obs[data_obs >= q_obs[1] & data_obs <= q_obs[2]]
+#   
+#   q_imp <- quantile(data_imp, probs = c(0.05, 0.95), na.rm = TRUE)
+#   data_imp <- data_imp[data_imp >= q_imp[1] & data_imp <= q_imp[2]]
+#   
+#   # Compute density estimates for each (line plot)
+#   dens_obs <- density(data_obs, na.rm = TRUE)
+#   dens_imp <- density(data_imp, na.rm = TRUE)
+#   
+#   # Set common x and y limits
+#   xlim <- range(c(dens_obs$x, dens_imp$x), na.rm = TRUE)
+#   ylim <- range(c(dens_obs$y, dens_imp$y), na.rm = TRUE)
+#   
+#   # Plot the observed density (black line)
+#   plot(dens_obs, xlim = xlim, ylim = ylim,
+#        main = titles[i], xlab = "", ylab = "Density",
+#        col = "black", lwd = 2, type = "l")
+#   # Overlay the imputado density (red line)
+#   lines(dens_imp, col = "red", lwd = 2)
+# }
+# 
+# # Create a new plotting region at the top for the common legend
+# par(fig = c(0, 1, 0.92, 1), new = TRUE)
+# plot(0, type = "n", axes = FALSE, xlab = "", ylab = "")
+# legend("center", legend = c("Observed", "Imputed"),
+#        col = c("black", "red"), lty = 1, horiz = TRUE, bty = "n", cex = 0.8)
+
+# # Export differences Imputed - Observed
+# cols <- 2:ncol(Obs_vs_Imp)
+# obs_idx <- cols[seq(1, length(cols), by = 2)]
+# imp_idx <- cols[seq(2, length(cols), by = 2)]
+# Differences <- Obs_vs_Imp[, imp_idx] - Obs_vs_Imp[, obs_idx]
+# colnames(Differences) <- titles
+# Differences <- cbind(Statistic = Obs_vs_Imp[, 1], Differences)
+# Differences <- Differences[-c(9),] 
+# stargazer(Differences, summary = FALSE, type = "latex", rownames = FALSE)
+
+
+
+# ---> Esto sí vale verga
+
+
+
+#  As we already imputed values for extreme variables. Now wer're going to fill with the mean 
+#  the incosistent data points and as we saw some people that repor
+# income_sources <- c("ie_oi", "imdi_oi", "impa_oi","iof1_oi", "iof2_oi", "iof3h_oi", "iof3i_oi", "iof6_oi", "isa_oi")
+# missing_report <- c("cclasnr4", "cclasnr5", "cclasnr2", "cclasnr6", "cclasnr7", "cclasnr8", "cclasnr8", "cclasnr11", "cclasnr3")
+# 
+# missing_stats <- list()
+# missing_stats <- map2(income_sources, missing_report, function(income_var, missing_var) {
+#   db2 %>%
+#     group_by(p6240 = recode(as.character(p6240),
+#                                 `6` = "Other activity",
+#                                 `5` = "Permanently unable to work",
+#                                 `4` = "Domestic work",
+#                                 `3` = "Studying",
+#                                 `2` = "Looking for work",
+#                                 `1` = "Working")) %>%
+#     summarise(
+#       !!paste0(income_var, "Original_missing_count") := sum(is.na(.data[[income_var]])),
+#       !!paste0(income_var, "_zero_count") := sum(.data[[income_var]] == 0, na.rm = TRUE),
+#       !!paste0(income_var, "_Already imputated") := sum(.data[[missing_var]], na.rm = TRUE)
+#     ) %>%
+#     ungroup()
+# })
+# 
+# # Merge all tables in the list by p6240
+# merged_income_stats <- reduce(missing_stats, full_join, by = "p6240")
+# write_xlsx(merged_income_stats, "merged_income_stats.xlsx")
+
+rm(db3,db_miss,question, M, M_long,Nobs,mode_edu,quantiles,dummy_maxEducLevel,lM1,lM2,quant_table,y_ingLab_m_P, Occupied_description,imp_vars,obs_vars,titles,Stats,Obs_vs_Imp, imp_idx,imp_vars,obs_idx,cols, check)
+
+```
+
+3.  Describe the data cleaning process
+4.  Descriptive the variables included in your analysis.
+
+At a minimum, you should include a descriptive statistics table with its
+interpretation. However, I expect a deep analysis that helps the reader
+understand the data, its variation, and the justification for your data
+choices. Use your professional knowledge to add value to this section.
+Do not present it as a "\\dry" list of ingredients
+
+## 3. Age wage profile
+
+```{r Age wage Regression, echo=FALSE}
+# --> 2 Options.
+model_ingLab <- lm(log(y_ingLab_m) ~ age + I(age^2), data = db2)
+model_salary <- lm(log(y_salary_m) ~ age + I(age^2), data = db2)
+
+# y_ingLab_m
+ggplot(db2, aes(x = age, y = log(y_ingLab_m))) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", formula = y ~ x + I(x^2), color = "blue") +
+  ggtitle("Quadratic Regression: log(y_ingLab_m) ~ Age")
+
+# y_salary_m
+ggplot(db2, aes(x = age, y = log(y_salary_m))) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", formula = y ~ x + I(x^2), color = "red") +
+  ggtitle("Quadratic Regression: log(y_salary_m) ~ Age")
+
 ```
 
 
