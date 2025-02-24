@@ -20,7 +20,11 @@ p_load(stringr, # html to text
        dplyr, # managing tables
        corrplot,#Correlation plot
        reshape2, # Long format for table 
-       stargazer) 
+       stargazer, # Regression and summary tables
+       boot, # Bootstrap methods  
+       car, # Advanced regression analysis  
+       lmtest, # Statistical tests for linear models  
+       caret) # Modeling and validation in machine learning  
 ```
 
 ## 1. Introduction
