@@ -583,3 +583,36 @@ dwtest(model_unconditional) # P-value < 0.05 suggests rejecting the null hypothe
 
 ```
 The statistical significance of the model is evident from the extremely low p-values associated with both the Breusch-Pagan test for heteroscedasticity and the Durbin-Watson test for autocorrelation, these results indicate strong evidence against the null hypotheses, revealing violations in the homoscedasticity and independence of errors assumptions, respectively. Economically, the model's findings suggest that the gender variable (female) plays a significant role in explaining variations in the log-transformed salary, highlighting potential gender disparities in earnings, however, the presence of heteroscedasticity and autocorrelation implies that traditional inference may be flawed, necessitating robust econometric techniques to ensure the validity of the estimated effects.
+
+## 5. Predicting earnings
+
+Split the sample into two: a training (70%) and a testing (30%) sample. (Don’t
+forget to set a seed to achieve reproducibility. In R, for example you can use
+set.seed(10101), where 10101 is the seed.)
+
+```{r}
+
+library(rsample)
+
+set.seed(1541)
+split = initial_split(db2, prop = 0.7, strata = fex_c)
+train_data = training(split)
+test_data = testing(split)
+
+```
+
+Report and compare the predictive performance in terms of the RMSE of all
+the previous specifications with at least five (5) additional specifications that
+explore non-linearities and complexity.
+
+```{r}
+model_1 = formula(log(y_salary_m) ~ age + I(age^2))
+model_2 = formula(log(y_salary_m) ~ female)
+model_3 = formula(log(y_salary_m) ~ female + controls)
+model_4 = formula(log(y_salary_m) ~ female + age + I(age^2) + 
+                    factor(maxEducLevel) + estrato + educ_padres)
+model_5 = formula(log(y_salary_m) ~ I(age^2) + female * age
+                    factor(maxEducLevel) + estrato + educ_padres)
+
+```
+
