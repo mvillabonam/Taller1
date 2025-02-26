@@ -81,7 +81,7 @@ this data frames are html tables, we will also use dplyr. [On latex]
 
 We will use the definition the variable "ocu" already included on the
 data set which takes value 1 if the person is occupied (employed) and 0
-otherwise. \### 2.c) Data cleaning process
+otherwise. \### 2.c) Data cleaning 
 
 #### 2.c.1) Filter and framming missing values
 
