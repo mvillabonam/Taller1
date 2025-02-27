@@ -87,7 +87,7 @@ plan(sequential)
 
 We will use the definition the variable "ocu" already included on the
 data set which takes value 1 if the person is occupied (employed) and 0
-otherwise. \### 2.c) Data cleaning 
+otherwise. \### 2.c) Data cleaning process
 
 #### 2.c.1) Filter and framming missing values
 
@@ -129,7 +129,7 @@ db2 <- db2 %>%
          informal,p6240,ocu,formal,informal,iees, imdi, impa, iof1, iof2, iof3h, iof6, isa,
          iees, imdies, impaes, ingtotes, iof1es, iof2es, iof3hes, iof3ies, iof6es, isaes,
          cclasnr4, cclasnr5, cclasnr2, cclasnr6, cclasnr7, cclasnr8,
-         cclasnr11, cclasnr3)
+         cclasnr11, cclasnr3, y_otros_m,y_vivienda_m,y_gananciaIndep_m)
 
 
 skim(db2)
@@ -183,7 +183,7 @@ imp_vars2 <- c("iees", "imdies", "impaes", "iof1es", "iof2es", "iof3hes", "iof3i
 missing_report <- c("cclasnr4", "cclasnr5", "cclasnr2", "cclasnr6", "cclasnr7", "cclasnr8", "cclasnr8", "cclasnr11", "cclasnr3")
 
 check <- function(db, imp_var, missing_var) {
-  nrow(db %>% filter(!is.na(!!sym(imp_var)), !!sym(missing_var) != 1)) == 0
+  nrow(db2 %>% filter(!is.na(!!sym(imp_var)), !!sym(missing_var) != 1)) == 0
 }
 mapply(function(imp, miss) check(db2, imp, miss), imp_vars2, missing_report)
 # (✓ Yes)
@@ -205,10 +205,16 @@ Obs_vs_Imp <- Reduce(function(x, y) merge(x, y, by = "Statistic", sort = FALSE),
 
 # As we can see, imputed variables only cover certein NA values.
 # ----> Imputing
+
+ # Convert NULL to NA
+
 for(i in seq_along(obs_vars)) {
   new_name <- paste0(obs_vars[i], "_oi")
-  db[[new_name]] <- ifelse(!is.na(db[[imp_vars[i]]]), db[[imp_vars[i]]], db[[obs_vars[i]]])
-}
+  
+  imp_val <- if (!is.null(db2[[imp_vars[i]]])) db2[[imp_vars[i]]] else rep(NA, nrow(db2))
+  obs_val <- if (!is.null(db2[[obs_vars[i]]])) db2[[obs_vars[i]]] else rep(NA, nrow(db2))
+  db2[[new_name]] <- ifelse(!is.na(imp_val), imp_val, obs_val)
+  }
 
 # ----> Check constructed on data base vs Imputed+Observed: 
 
@@ -244,7 +250,8 @@ corrplot(
 # associated pre-constructed variables with the imputed data we elaborated.
 
 #  Choosing total: 
-t.test(db_temp$ingtot_oi, db_temp$y_total_m, paired = TRUE)
+
+t.test(db_temp$Total, db_temp$`M. Total`, paired = TRUE)
 
 db_temp <-  db2 %>%  select(ingtot_oi,y_total_m,)
 db_temp %>%
@@ -333,8 +340,10 @@ db2 <- cbind(db2, dummy_maxEducLevel)
 lM1 <- lm(y_salary_m ~ impa_oi + sex + maxEducLevel3 + maxEducLevel4 
           + maxEducLevel5 + maxEducLevel6 + maxEducLevel7 , data = db2)
 db2$y_salary_m_P <- predict(lM1, newdata = db2)
-db2 <- db2 %>%
-  mutate(y_salary_m = ifelse(is.na(y_salary_m) & p6240 == 1 & formal == 1, y_salary_m_P, y_salary_m))
+
+db2$y_salary_m <- ifelse(is.na(db2$y_salary_m) & db2$p6240 == 1 & db2$formal == 1, 
+                          db2$y_salary_m_P, 
+                          db2$y_salary_m)
 
 # ----> LABORAL INCOME: INFORMAL
 # 21.5% missing. 
@@ -342,8 +351,12 @@ db2$y_gananciaIndep_m
 lM1 <- lm(y_gananciaIndep_m ~ impa_oi + informal + sex + maxEducLevel3 
           + maxEducLevel4 + maxEducLevel5 + maxEducLevel6 + maxEducLevel7 , data = db2)
 db2$y_gananciaIndep_m_P <- predict(lM1, newdata = db2)
-db2 <- db2 %>%
-  mutate(y_gananciaIndep_m = ifelse(is.na(y_gananciaIndep_m) & p6240 == 1 & informal == 1, y_gananciaIndep_m_P, y_gananciaIndep_m))
+
+db2$y_gananciaIndep_m <- ifelse(
+  is.na(db2$y_gananciaIndep_m) & db2$p6240 == 1 & db2$informal == 1, 
+  db2$y_gananciaIndep_m_P, 
+  db2$y_gananciaIndep_m
+)
 
 
 # ----> FILTERED DATA BASE
@@ -354,8 +367,8 @@ db2 <- db2 %>%
 # par(mfrow = c(2, 5), oma = c(0, 0, 5, 0))  
 # for(i in seq_along(obs_vars)) {
 #   # Extract observed and imputado data
-#   data_obs <- db[[obs_vars[i]]]
-#   data_imp <- db[[imp_vars[i]]]
+#   data_obs <- db2[[obs_vars[i]]]
+#   data_imp <- db2[[imp_vars[i]]]
 #   
 #   # Exclude outliers based on 5th–95th percentiles
 #   q_obs <- quantile(data_obs, probs = c(0.05, 0.95), na.rm = TRUE)
