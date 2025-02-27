@@ -21,8 +21,8 @@ p_load(stringr, # html to text
        corrplot,#Correlation plot
        reshape2, # Long format for table 
        stargazer,
-       gridExtra # visualizing missing data
-       ) 
+       gridExtra, # visualizing missing data
+       furrr) 
 ```
 
 ## 1. Introduction
@@ -60,21 +60,27 @@ this data frames are html tables, we will also use dplyr. [On latex]
 <div>
 
 ```{r 2.b) Scrapping}
-    # Link
-    base <- "https://ignaciomsarmiento.github.io/GEIH2018_sample/pages/geih_"
-    htmls <- paste0(base,"page_",1:10, ".html")
 
-    tables_list <- list()
-    for (url in htmls) {
-      web_page <- read_html(url)
-      table <- web_page %>%
-        html_nodes("table.table-striped") %>%
-        html_table(fill = TRUE)
-      tables_list[[url]] <- table
-    }
+plan(multisession, workers = parallel::detectCores() - 1) 
+base <- "https://ignaciomsarmiento.github.io/GEIH2018_sample/pages/geih_"
+htmls <- paste0(base, "page_", 1:10, ".html")
 
-    db = bind_rows(tables_list) %>% select(-...1)
-    rm(tables_list,web_page,table,base,htmls,url)
+scrape_table <- function(url) {
+  web_page <- read_html(url)
+  table <- web_page %>%
+    html_nodes("table.table-striped") %>%
+    html_table(fill = TRUE)
+  return(table[[1]])  # Extraer el primer elemento (que es la tabla real)
+}
+
+
+tables_list <- future_map(htmls, scrape_table)
+
+db <- bind_rows(tables_list) %>% select(-...1)
+
+rm(tables_list, base, htmls)
+
+plan(sequential) 
 ```
 
 </div>
