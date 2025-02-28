@@ -632,6 +632,5 @@ model_4 = formula(log(y_salary_m) ~ female + age + I(age^2) +
                     factor(maxEducLevel) + estrato + educ_padres)
 model_5 = formula(log(y_salary_m) ~ I(age^2) + female * age
                     factor(maxEducLevel) + estrato + educ_padres)
-
 ```
 
