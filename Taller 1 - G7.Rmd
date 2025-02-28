@@ -569,11 +569,15 @@ db2 <- db2 %>%
   mutate(female = ifelse(sex == 0, 1, 0)) 
 head(db2)
 
+# Checking and removing non-positive values in y_salary_m
+non_positive_y_salary_m <- sum(db2$y_salary_m <= 0)
+cat("Number of non-positive values in y_salary_m:", non_positive_y_salary_m, "\n")
+db2 <- db2 %>% filter(y_salary_m > 0)
+
 model_unconditional <- lm(log(y_salary_m) ~ female, data = db2)
 summary(model_unconditional)
 
-
-#Gauss Marcov Theorem
+#  GAUSS MARCOV THEOREM 
 #  Linearity Check:
 ggplot(data = data.frame(Fitted = fitted(model_unconditional), Residuals = residuals(model_unconditional)), 
        aes(x = Fitted, y = Residuals)) +
@@ -589,6 +593,197 @@ bptest(model_unconditional)  #P-value < 0.05 suggests rejecting the null hypothe
 
 # No Autocorrelation: Durbin-Watson Test
 dwtest(model_unconditional) # P-value < 0.05 suggests rejecting the null hypothesis
+```
+The unconditional model provides clear evidence of a gender wage gap, with females earning significantly less than males on average, as indicated by the highly statistically significant coefficient for the gender variable female. This suggests that gender plays a significant role in explaining variations in log-transformed salaries, highlighting potential gender disparities in earnings,however, the statistical significance of the model must be interpreted with caution due to violations of key assumptions: The extremely low p-values from the Breusch-Pagan test for heteroscedasticity and the Durbin-Watson test for autocorrelation reveal strong evidence against the null hypotheses, indicating issues with homoscedasticity and the independence of errors. These violations imply that traditional inference methods may be flawed, potentially affecting the reliability of the standard errors and p-values. To draw more robust conclusions, we proceed with estimating a conditional model that includes control variables and addresses the issues of heteroscedasticity and autocorrelation. 
+
+```{r Conditional Gender Wage Gap}
+
+# Conditional Gender Wage Gap (OLS)
+conditional_model <- lm(log(y_salary_m) ~ female + age + I(age^2) + maxEducLevel + informal + estrato1, data = db2)
+summary(conditional_model)
+
+# ------------------------ FRISCH-WAUGH-LOVELL THEOREM--------------------------------
+#Estimation with FWL to isolate the effect of female on log(salary) by partialling out the control variables. 
+# Fit the control model (without female)
+controls <- lm(log(y_salary_m) ~ age + I(age^2) + maxEducLevel + informal + estrato1, data = db2)
+residuals_w <- residuals(controls)
+
+gender <- lm(female ~ age + I(age^2) + maxEducLevel + informal + estrato1, data = db2)
+residuals_x <- residuals(gender)
+
+#The effect of female using the residuals
+fwl_model_1 <- lm(residuals_w ~ residuals_x)
+summary_fwl <- summary(fwl_model_1)  
+summary_fwl
+
+#  GAUSS MARCOV THEOREM 
+# 1. Linearity Check: Residual vs Fitted Plot
+ggplot(data = data.frame(Fitted = fitted(model_unconditional), Residuals = residuals(fwl_model_1)), 
+       aes(x = Fitted, y = Residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Residuals vs Fitted Values", x = "Fitted Values", y = "Residuals")
+
+# 2. Exogeneity: Mean of residuals should be zero
+mean(residuals(fwl_model_1)) # Mean is aprox. 0 supporting the assumption of exogeneity
+
+# 3. Homoscedasticity: Breusch-Pagan Test
+bptest(fwl_model_1)  #P-value > 0.05 suggests no strong evidence of heteroscedasticity in the residuals
+
+# 4. No Autocorrelation: Durbin-Watson Test
+dwtest(fwl_model_1) # #P-value < 0.05 suggests rejecting the null hypothesis
+
+# 5. Multicollinearity
+vif_values <- vif(conditional_model)
+vif_values #Multicollinearity is moderate to high for age and I(age^2) (GVIF^(1/(2*Df)) > 5), which is expected because I(age^2) is a transformation of age. The other variables do not exhibit multicollinearity.
+
+robust_se <- coeftest(fwl_model_1, vcov = vcovHC(fwl_model_1, type = "HC1"))
+print(robust_se)
+
+#The model shows a highly significant negative effect of being female on salary,
+#with a coefficient of -0.217. The standard error for this coefficient is small (0.0113),
+#indicating precise estimation, the intercept is not significant, which is expected since
+#residuals are used and finally the robust standard errors suggest the model has effectively addressed 
+#autocorrelation issues, providing solid and reliable results.
+
+# ------------------------ FWL WITH BOOTSTRAP ----------------------------------------
+# Función de bootstrap para FWL
+# Función de bootstrap para FWL
+fwl_bootstrap <- function(data, indices) {
+  # Resample the data
+  boot_data <- data[indices, ]
+  control_model_boot <- lm(log(y_salary_m) ~ age + maxEducLevel + informal + estrato1, data = boot_data)
+  boot_data$residuals_control <- residuals(control_model_boot)
+  fwl_model_boot <- lm(residuals_control ~ female, data = boot_data)
+  return(c(coef(fwl_model_boot)["female"]))
+}
+
+# Bootstrap with 1000 resamples
+set.seed(100)  # For reproducibility
+fwl_boot_results <- boot(data = db2, statistic = fwl_bootstrap, R = 1000)
+
+# Ajustar el modelo fuera de la función de bootstrap para pruebas y gráficos
+control_model <- lm(log(y_salary_m) ~ age + maxEducLevel + informal + estrato1, data = db2)
+db2$residuals_control <- residuals(control_model)
+fwl_boot_model <- lm(residuals_control ~ female, data = db2)
+summary(fwl_boot_model)
+
+#  GAUSS MARKOV THEOREM 
+# 1. Linearity Check: Residual vs Fitted Plot
+ggplot(data = data.frame(Fitted = fitted(fwl_boot_model), Residuals = residuals(fwl_boot_model)), 
+       aes(x = Fitted, y = Residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Residuals vs Fitted Values", x = "Fitted Values", y = "Residuals")
+
+# 2. Exogeneity: Mean of residuals should be zero
+mean_residuals <- mean(residuals(fwl_boot_model)) # Mean is approx. 0 supporting the assumption of exogeneity
+print(mean_residuals)
+
+# 3. Homoscedasticity: Breusch-Pagan Test
+bp_test <- bptest(fwl_boot_model)  # P-value < 0.05 suggests rejecting the null hypothesis, and evidence of hero
+print(bp_test)
+
+# 4. No Autocorrelation: Durbin-Watson Test
+dw_test <- dwtest(fwl_boot_model) # P-value < 0.05 suggests rejecting the null hypothesis
+print(dw_test)
+
+# Comparando los resultados
+boot_se <- sd(boot_estimates)
+boot_mean <- mean(boot_estimates)
+
+results <- data.frame(
+  Method = c("FWL", "Bootstrap"),
+  Estimate = c(coef(fwl_boot_model)["female"], boot_mean),
+  StdError = c(summary(fwl_boot_model)$coefficients["female", "Std. Error"], boot_se)
+)
+print(results)
+
+coef_names <- names(coef(fwl_model_1))
+coef_names[2] <- "female"
+
+# Comparing the results
+stargazer(
+  model_unconditional, conditional_model, fwl_model_1,
+  title = "Comparison of Unconditional and Conditional Gender Wage Gaps",
+  type = "text", # Cambia a "html" o "latex" para otros formatos
+  align = TRUE, 
+  out = "gender_wage_gap_comparison.html",
+  covariate.labels = c("Female"), # Solo mostramos la etiqueta para "Female"
+  column.labels = c("Unconditional", "Conditional", "FWL"),
+  dep.var.labels = "Log(Salary)",
+  keep = c("female", "residuals_x"), # Solo mantenemos "female" y "residuals_x"
+  no.space = TRUE,
+  add.lines = list(
+    c("Method", "Unconditional", "Conditional", "FWL"),
+    c("Observations", nobs(model_unconditional), nobs(conditional_model), nobs(fwl_model_1))
+  ),
+  notes = "Standard errors are in parentheses."
+)
+```
+
+```{r Peak ages}
+
+# Regression model with age-gender interaction
+peak_ages_model <- lm(log(y_salary_m) ~ age * female + I(age^2) * female + maxEducLevel + informal + estrato1, data = db2)
+
+# Create a range of ages and genders for prediction
+age_seq <- seq(min(db2$age), max(db2$age), by = 1)
+prediction_data <- expand.grid(age = age_seq, female = c(0, 1))
+
+# Assign typical values for other variables
+common_educ <- names(sort(table(db2$maxEducLevel), decreasing = TRUE))[1]  # Mode of education
+common_informal <- as.numeric(names(sort(table(db2$informal), decreasing = TRUE))[1])  # Mode of informality
+common_estrato <- as.numeric(names(sort(table(db2$estrato1), decreasing = TRUE))[1])  # Mode of socioeconomic level
+
+# Add fixed values to prediction_data
+prediction_data$maxEducLevel <- factor(common_educ, levels = levels(db2$maxEducLevel))
+prediction_data$informal <- common_informal
+prediction_data$estrato1 <- common_estrato
+
+# Make predictions with confidence intervals
+predictions <- predict(peak_ages_model, newdata = prediction_data, interval = "confidence")
+prediction_data <- cbind(prediction_data, predictions)
+
+# Back-transform log wages to actual wages for plotting
+prediction_data <- prediction_data %>%
+  mutate(pred_wage = exp(fit), 
+         lwr_wage = exp(lwr), 
+         upr_wage = exp(upr))
+
+
+# Plot predicted age-wage profile by gender
+ggplot(prediction_data, aes(x = age, y = pred_wage, color = as.factor(female), fill = as.factor(female))) +
+  geom_line(linewidth = 1) +  # Use linewidth instead of size
+  geom_ribbon(aes(ymin = lwr_wage, ymax = upr_wage), alpha = 0.2) +
+  labs(title = "Predicted Age-Wage Profile by Gender",
+       subtitle = "Includes confidence intervals based on regression estimates",
+       x = "Age",
+       y = "Predicted Wage",
+       color = "Gender",
+       fill = "Gender",
+       caption = "Note: The predicted age-wage profile is estimated using a regression model with interaction terms.\nConfidence intervals reflect the uncertainty of predictions.\nSource: Own estimations based on regression model.") +
+  scale_color_manual(values = c("blue", "pink"), labels = c("Male", "Female")) +
+  scale_fill_manual(values = c("blue", "pink"), labels = c("Male", "Female")) +
+  theme_minimal() +
+  theme(plot.caption = element_text(hjust = 0, size = 10))  # Left-align caption for readability
+
+# Extract coefficients from the model
+coefficients <- coef(peak_ages_model)
+age_coef <- coefficients["age"]
+age_squared_coef <- coefficients["I(age^2)"]
+female_age_coef <- coefficients["age:female"]
+female_age_squared_coef <- coefficients["female:I(age^2)"]
+
+# Peak ages
+if (all(!is.na(c(age_coef, age_squared_coef, female_age_coef, female_age_squared_coef)))) {
+  peak_age_male <- round(-age_coef / (2 * age_squared_coef))
+  peak_age_female <- round(-(age_coef + female_age_coef) / (2 * (age_squared_coef + female_age_squared_coef)))
+  
+  cat("Peak age for males:", peak_age_male, "\n")
+  cat("Peak age for females:", peak_age_female, "\n")
+} else {
+  cat("Missing coefficients for calculation.\n")
+}
 
 ```
-The statistical significance of the model is evident from the extremely low p-values associated with both the Breusch-Pagan test for heteroscedasticity and the Durbin-Watson test for autocorrelation, these results indicate strong evidence against the null hypotheses, revealing violations in the homoscedasticity and independence of errors assumptions, respectively. Economically, the model's findings suggest that the gender variable (female) plays a significant role in explaining variations in the log-transformed salary, highlighting potential gender disparities in earnings, however, the presence of heteroscedasticity and autocorrelation implies that traditional inference may be flawed, necessitating robust econometric techniques to ensure the validity of the estimated effects.
