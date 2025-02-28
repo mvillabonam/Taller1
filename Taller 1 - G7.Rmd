@@ -11,8 +11,6 @@ editor_options:
 ```{r setup, include=FALSE}
 gc(rm(list = ls()))
 knitr::opts_chunk$set(echo = TRUE)
-
-require(pacman)
 require(pacman)
 p_load(stringr, # html to text
        tidyverse, # tidy-data
@@ -31,22 +29,6 @@ p_load(stringr, # html to text
 ```
 
 ## 1. Introduction
-
-In the public sector, accurate reporting of individual income is
-critical for computing taxes. However, tax fraud of all kinds has always
-been a significant issue. According to the Internal Revenue Service
-(IRS), about 83.6% of taxes are paid voluntarily and on time in the
-US.1. One of the causes of this gap is the under-reporting of incomes by
-individuals. An income predicting model could potentially assist in
-agging cases of fraud that could lead to the reduction of the gap.
-Furthermore, an income prediction model can help identify vulnerable
-individuals and families that may need further assistance.
-
-The objective of the problem set is to generate a predictive model on
-income levels based on Bogota's information about employed adults (\>18
-years old). Thus, we can predict levels of income and then estimate a
-level of tax payment. For this objective the survey of 2018 GEIH from
-DANE, will be used.
 
 2.  Describe the data briefly, including its purpose, and any other
     relevant information.
@@ -80,6 +62,7 @@ this data frames are html tables, we will also use dplyr. [On latex]
 
     db = bind_rows(tables_list) %>% select(-...1)
     rm(tables_list,web_page,table,base,htmls,url)
+
 ```
 
 </div>
@@ -102,9 +85,7 @@ db_miss <- data.frame(
   p_missing = round(colSums(100*is.na(db2))/Nobs,2)
 ) 
 rownames(db_miss) <- NULL
-View(db_miss)
 
-# Attaching question content
 question <- read_html("https://ignaciomsarmiento.github.io/GEIH2018_sample/dictionary.html")
 question <- question %>%
         html_nodes("table") %>%
@@ -112,13 +93,9 @@ question <- question %>%
 question = bind_rows(question)
 db_miss <- left_join(question, db_miss, by = "Variable")
 db_miss <- db_miss %>% arrange(desc(p_missing)) %>% filter(p_missing != 0) 
-db_miss
+write.csv(db_miss, "1. Missing values per variable.csv", row.names = FALSE)
 
-# As we can see, almost 99/177 variables have more than 20% of the sample missing. 
-# Yet, many of these variables are associated with non-occupied people and are not
-# relevant for this exercise. Others, are the same variable with different scales 
-# (example: monthly salary vs hourly salary). Thus, we're only going to keep the following variables:
-
+# SELECTING RELEVANT VARIABLES
 db2 <- db2 %>%
   select(y_ingLab_m, y_salary_m, y_total_m, ie,iees,  
          ingtotes, ingtotob, ingtot, y_bonificaciones_m, y_gananciaNeta_m, 
@@ -126,10 +103,9 @@ db2 <- db2 %>%
          maxEducLevel, directorio, secuencia_p, orden, clase, dominio, mes, estrato1, 
          sex, age, oficio, fex_c, depto, fex_dpto, fweight, 
          informal,p6240,ocu,formal,informal,iees, imdi, impa, iof1, iof2, iof3h, iof6, isa,
-         iees, imdies, impaes, ingtotes, iof1es, iof2es, iof3hes, iof3ies, iof6es, isaes,
+         iees, imdies, impaes,  iof1es, iof2es, iof3hes, iof3ies, iof6es, isaes,
          cclasnr4, cclasnr5, cclasnr2, cclasnr6, cclasnr7, cclasnr8,
          cclasnr11, cclasnr3,y_otros_m,y_vivienda_m,y_gananciaIndep_m)
-
 
 skim(db2)
 ```
@@ -138,46 +114,43 @@ skim(db2)
 
 ```{r Data exploration, echo=FALSE}
 #------------ DATA CLEANING PROCESS: CONSISTENCY -------------------------------
-
-# Occupied must be equal to the sum of formal + informal. 
+# OCCUPIED = FORMAL + INFORMAL. 
 Occupied_description <- db2 %>%
   group_by(p6240) %>%
   summarise(across(c(ocu, formal, informal), sum, na.rm = TRUE)) %>%
   ungroup() %>%
-  add_row(p6240 = NA, 
+ add_row(p6240 = NA, 
           ocu = sum(.$ocu), 
           formal = sum(.$formal), 
           informal = sum(.$informal)) %>%
   mutate(Occupation = if_else(is.na(p6240), "Total",
-                              recode(as.character(p6240),
-                                     `6` = "Other activity",
-                                     `5` = "Permanently unable to work",
-                                     `4` = "Domestic work",
-                                     `3` = "Studying",
-                                     `2` = "Looking for work",
-                                     `1` = "Working"))) %>%
+                              case_when(
+                                p6240 == 6 ~ "Other activity",
+                                p6240 == 5 ~ "Permanently unable to work",
+                                p6240 == 4 ~ "Domestic work",
+                                p6240 == 3 ~ "Studying",
+                                p6240 == 2 ~ "Looking for work",
+                                p6240 == 1 ~ "Working",
+                                TRUE ~ as.character(p6240)
+                              ))) %>%
   select(Occupation, ocu, formal, informal) %>%
-  mutate(across(c(ocu, formal, informal), ~ . / last(ocu) * 100))
-Occupied_description <- Occupied_description[-c(7),]
-View(Occupied_description)
+  mutate(across(c(ocu, formal, informal), ~ . / last(ocu)*100))
 
-####  Export 
+Occupied_description <- Occupied_description[-c(7),]
+
 Occupied_description <- Occupied_description %>%
-  mutate(across(c(ocu, formal, informal), ~ sprintf("%.2f", .x)))
+  mutate(across(c(ocu, formal, informal), ~ sprintf("%.1f", .x)))
 stargazer(Occupied_description, summary = FALSE, type = "latex", rownames = FALSE)
 
-
-# As we can see, most of income comes from either Working, Other activity or Domestic work. We're going to explore this income source individually. 
-
 #------------ DATA CLEANING PROCESS: CHOOSING INCOME -------------------------------------------
-### On the first place we're going to check differences of imputed variables vs observed variables. 
+## OBSERVED vs IMPUTED VARIABLES
 obs_vars <- c("ie", "imdi", "impa", "ingtot", "iof1", "iof2", "iof3h", "iof3i", "iof6", "isa")
 imp_vars <- c("iees", "imdies", "impaes", "ingtotes", "iof1es", "iof2es", "iof3hes", "iof3ies", "iof6es", "isaes")
 titles   <- c("Especie", "Labor income non-occupied", "Main Activity", "Total", 
               "Interes and dividends", "Retirement", "Household Aid", "Institutional Aid", 
               "Real State", "Second Activity")
 
-# ----> Check if imputed variables cover missing values of observed income.
+# ----> PROOF OF: imputed variables convering some missing values of observed income.
 imp_vars2 <- c("iees", "imdies", "impaes", "iof1es", "iof2es", "iof3hes", "iof3ies", "iof6es", "isaes")
 missing_report <- c("cclasnr4", "cclasnr5", "cclasnr2", "cclasnr6", "cclasnr7", "cclasnr8", "cclasnr8", "cclasnr11", "cclasnr3")
 
@@ -185,7 +158,7 @@ check <- function(db, imp_var, missing_var) {
   nrow(db2 %>% filter(!is.na(!!sym(imp_var)), !!sym(missing_var) != 1)) == 0
 }
 mapply(function(imp, miss) check(db2, imp, miss), imp_vars2, missing_report)
-# (✓ Yes)
+
 
 # ----> Check the dispersion of imputed vs observed
 Stats <- mapply(function(ob, im, title) {
@@ -202,7 +175,7 @@ Stats <- mapply(function(ob, im, title) {
 
 Obs_vs_Imp <- Reduce(function(x, y) merge(x, y, by = "Statistic", sort = FALSE), Stats)
 
-# As we can see, imputed variables only cover certein NA values.
+# As we can see, imputed variables only cover certain NA values.
 # ----> Imputing
 for(i in seq_along(obs_vars)) {
   new_name <- paste0(obs_vars[i], "_oi")
@@ -268,17 +241,7 @@ db_temp %>%
 # Formal
 # Filter for formal workers
 Formal <- db2 %>%
-  filter(formal == 1) %>%  # Keep only rows where formal == 1
-  mutate(
-    Occupation = if_else(is.na(p6240), "Total",
-                         recode(as.character(p6240),
-                                `6` = "Other activity",
-                                `5` = "Permanently unable to work",
-                                `4` = "Domestic work",
-                                `3` = "Studying",
-                                `2` = "Looking for work",
-                                `1` = "Working"))
-  ) %>%
+  filter(formal == 1) %>%  
   group_by(Occupation, sex) %>%  # Now also group by sex (gender)
   summarise(
     mean_age = mean(age, na.rm = TRUE),
@@ -286,21 +249,10 @@ Formal <- db2 %>%
     na_or_zero_percentage_total = sum(is.na(ingtot_oi) | ingtot_oi == 0) / n() * 100
   ) %>%
   ungroup()
-View(Formal)
 
 # Informal 
 Informal <- db2 %>%
-  filter(informal == 1) %>%  # Keep only rows where formal == 1
-  mutate(
-    Occupation = if_else(is.na(p6240), "Total",
-                         recode(as.character(p6240),
-                                `6` = "Other activity",
-                                `5` = "Permanently unable to work",
-                                `4` = "Domestic work",
-                                `3` = "Studying",
-                                `2` = "Looking for work",
-                                `1` = "Working"))
-  ) %>%
+  filter(informal == 1) %>% 
   group_by(Occupation, sex) %>%  # Now also group by sex (gender)
   summarise(
     mean_age = mean(age, na.rm = TRUE),
@@ -308,7 +260,6 @@ Informal <- db2 %>%
     na_or_zero_percentage_total = sum(is.na(ingtot_oi) | ingtot_oi == 0) / n() * 100
   ) %>%
   ungroup()
-View(Informal)
 
 #--- METERLE ACÁ NIVEL EDUCATIVO
 
@@ -333,7 +284,7 @@ db2 <- db2  %>%
 db2$maxEducLevel<- factor(db2$maxEducLevel)
 dummy_maxEducLevel <- as.data.frame(model.matrix(~ maxEducLevel - 1, data = db2))
 db2 <- cbind(db2, dummy_maxEducLevel)
-lM1 <- lm(y_salary_m ~ impa_oi + sex + maxEducLevel3 + maxEducLevel4 
+lM1 <- lm(y_salary_m ~ impa_oi + maxEducLevel3 + maxEducLevel4 
           + maxEducLevel5 + maxEducLevel6 + maxEducLevel7 , data = db2)
 db2$y_salary_m_P <- predict(lM1, newdata = db2)
 db2$y_salary_m <- ifelse(is.na(db2$y_salary_m) & db2$p6240 == 1 & db2$formal == 1, 
@@ -343,7 +294,7 @@ db2$y_salary_m <- ifelse(is.na(db2$y_salary_m) & db2$p6240 == 1 & db2$formal == 
 # ----> LABORAL INCOME: INFORMAL
 # 21.5% missing. 
 db2$y_gananciaIndep_m
-lM1 <- lm(y_gananciaIndep_m ~ impa_oi + informal + sex + maxEducLevel3 
+lM1 <- lm(y_gananciaIndep_m ~ impa_oi + informal + maxEducLevel3 
           + maxEducLevel4 + maxEducLevel5 + maxEducLevel6 + maxEducLevel7 , data = db2)
 db2$y_gananciaIndep_m_P <- predict(lM1, newdata = db2)
 db2$y_gananciaIndep_m <- ifelse(
@@ -417,7 +368,7 @@ db2$y_gananciaIndep_m <- ifelse(
 # missing_stats <- list()
 # missing_stats <- map2(income_sources, missing_report, function(income_var, missing_var) {
 #   db2 %>%
-#     group_by(p6240 = recode(as.character(p6240),
+#     group_by(p6240 = case_when(as.character(p6240),
 #                                 `6` = "Other activity",
 #                                 `5` = "Permanently unable to work",
 #                                 `4` = "Domestic work",
@@ -435,8 +386,9 @@ db2$y_gananciaIndep_m <- ifelse(
 # # Merge all tables in the list by p6240
 # merged_income_stats <- reduce(missing_stats, full_join, by = "p6240")
 # write_xlsx(merged_income_stats, "merged_income_stats.xlsx")
+summary(db2$y_salary_m)
 
-rm(db3,db_miss,question, M, M_long,Nobs,mode_edu,quantiles,dummy_maxEducLevel,lM1,lM2,quant_table,y_ingLab_m_P, Occupied_description,imp_vars,obs_vars,titles,Stats,Obs_vs_Imp, imp_idx,imp_vars,obs_idx,cols, check)
+rm(db_miss,question, M,Nobs,mode_edu,quantiles,dummy_maxEducLevel,lM1,y_ingLab_m_P, Occupied_description,imp_vars,obs_vars,titles,Stats,Obs_vs_Imp, imp_idx,imp_vars,obs_idx,cols, check)
 
 ```
 
