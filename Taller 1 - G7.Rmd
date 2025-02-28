@@ -13,6 +13,7 @@ gc(rm(list = ls()))
 knitr::opts_chunk$set(echo = TRUE)
 
 require(pacman)
+require(pacman)
 p_load(stringr, # html to text
        tidyverse, # tidy-data
        skimr, # summary data
@@ -21,8 +22,12 @@ p_load(stringr, # html to text
        corrplot,#Correlation plot
        reshape2, # Long format for table 
        stargazer,
-       gridExtra # visualizing missing data
-       ) 
+       gridExtra,
+       boot,
+       car,
+       lmtest,
+       caret, 
+       sandwich)
 ```
 
 ## 1. Introduction
