@@ -326,11 +326,13 @@ db2 <- db2  %>%
   mutate(maxEducLevel = ifelse(is.na(maxEducLevel) == TRUE, mode_edu , maxEducLevel))
 
 # ----> FILLING SALARY VARIABLE. 
+db2 <- db2 %>% mutate(working = ifelse(p6240 == 1, 1, 0))
+
 db2$maxEducLevel<- factor(db2$maxEducLevel)
 dummy_maxEducLevel <- as.data.frame(model.matrix(~ maxEducLevel - 1, data = db2))
 db2 <- cbind(db2, dummy_maxEducLevel)
 
-lM1 <- lm(impa_oi ~ formal + maxEducLevel, data = db2)
+lM1 <- lm(impa_oi ~ formal + working + maxEducLevel, data = db2)
 summary(lM1)
 
 # ----> EVALUATING LEVERAGE
@@ -368,14 +370,14 @@ db2 <-  db2 %>%
   dplyr:: filter(leverage<= cutt)
 
 # RE RUNNING THE MODEL
-lM2 <- lm(impa_oi ~ formal + maxEducLevel, data = db2)
+lM2 <- lm(impa_oi ~ formal + working + maxEducLevel, data = db2)
 summary(lM2)
 db2$impa_oi_P <- predict(lM1, newdata = db2)
-db2$impa_oi <- ifelse(is.na(db2$impa_oi), db2$impa_oi_P,db2$impa_oi)
+db2$impa_oi <- ifelse(is.na(db2$impa_oi) | db2$impa_oi == 0, db2$impa_oi_P, db2$impa_oi)
 
 # ----> CHECKING FOR NEGATIVE VALUES
-non_positive_y_salary_m <- sum(db2$y_salary_m <= 0)
-cat("Number of non-positive values in y_salary_m:", non_positive_y_salary_m, "\n")
+non_positive_impa_oi <- sum(db2$impa_oi <= 0)
+cat("Number of non-positive values in y_salary_m:", non_positive_impa_oi, "\n")
 
 # ----> CHECKING RESIDUALS
 png("2.3 Residuals removing HIGH LEVERAGE.png", width = 800, height = 600) 
@@ -383,7 +385,7 @@ par(mfrow = c(2, 2))
 plot(lM2)
 dev.off()
 
-rm(db_miss,question, M,Nobs,mode_edu,dummy_maxEducLevel,lM1, Occupied_description,imp_vars,obs_vars,titles,Stats,Obs_vs_Imp, imp_idx,obs_idx,cols, check,lM2,lM1,N,WAGES,TOTAL_INCOME,RES,LEV)
+rm(db_miss,question, M,Nobs,mode_edu,dummy_maxEducLevel,lM1, Occupied_description,imp_vars,obs_vars,titles,Stats,Obs_vs_Imp, imp_idx,obs_idx,cols, check,lM2,N,WAGES,TOTAL_INCOME,RES,LEV, Differences, db_temp, tables_list, cutt, i, imp_val, new_name, obs_val, p)
 ```
 
 ```{r Data exploration, echo=FALSE, message=FALSE}
