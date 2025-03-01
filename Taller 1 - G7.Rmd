@@ -791,6 +791,54 @@ formula_8 = formula(log(y_salary_m) ~ female * factor(maxEducLevel) * factor(est
 
 ```
 
+##Explore the regularization of the models given the high parametrization that some of them have.
+
+
+library(glmnet)
+
+# Define response variable
+y <- log(data$y_salary_m)
+
+# Models to regularize
+
+formulas <- list(
+  formula_1 = log(y_salary_m) ~ age + I(age^2),
+  formula_2 = log(y_salary_m) ~ female,
+  formula_3 = log(y_salary_m) ~ female + age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1),
+  formula_4 = log(y_salary_m) ~ female + age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1) + factor(oficio2),
+  formula_5 = log(y_salary_m) ~ female * factor(maxEducLevel) + age + I(age^2) + informal + factor(estrato1) + factor(oficio2),
+  formula_6 = log(y_salary_m) ~ female * factor(maxEducLevel) + poly(age, 3) + informal * factor(maxEducLevel) + factor(estrato1) + factor(oficio2),
+  formula_7 = log(y_salary_m) ~ female * factor(maxEducLevel) + poly(age, 3) + informal * factor(maxEducLevel) + factor(estrato1) * factor(maxEducLevel) + factor(oficio2),
+  formula_8 = log(y_salary_m) ~ female * factor(maxEducLevel) * factor(estrato1) + poly(age, 3) + informal * factor(maxEducLevel) + factor(oficio2)
+)
+
+# Lasso Loop
+results <- list()
+for (i in seq_along(formulas)) {
+  # Create model matrix for predictors
+  X <- model.matrix(formulas[[i]], data)[,-1]  # Remove intercept
+  
+  # Fit LASSO model
+  lasso_model <- glmnet(X, y, alpha = 1)
+  
+  # Extract coefficients at lambda = 0.2
+  coefs <- coef(lasso_model, s = 0.2)
+  
+  # Store results
+  results[[names(formulas)[i]]] <- list(
+    model = lasso_model,
+    coefficients = coefs
+  )
+  
+  # Plot coefficient paths
+  plot(lasso_model, xvar = "lambda", main = paste("LASSO for", names(formulas)[i]))
+}
+
+# Display results for one model example
+results$formula_1$coefficients
+
+
+
 Calculate the predictive performance 
 
 
