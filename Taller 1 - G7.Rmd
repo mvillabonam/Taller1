@@ -191,6 +191,18 @@ corrplot(
   tl.col = "black", tl.srt = 90,   tl.cex = 0.8, cl.cex = 0.9,                
   addCoef.col = "black", number.cex = 0.8,mar = c(2,2,2,2))
 
+# ----> CHOOSING SALARY VARIABLES (WORKING AS FIRST ACTIVITY)
+db_temp <-  db2 %>% filter(p6240 == 1) %>%  select(y_salary_m, impa_oi)
+summary(db_temp)
+sapply(db_temp, function(col) sum(col == 0, na.rm = TRUE)) # Number of 0 values
+sapply(db_temp, function(col) {
+  if (is.numeric(col)) { cut(col, breaks = quantile(col, probs = c(0, 0.25, 0.5, 0.75, 1), na.rm = TRUE), include.lowest = TRUE) %>%
+      table()
+  } else {
+    NA # OBSERVATIONS PER QUANTILE
+  }
+})
+
 # ----> CHOOSING TOTAL INCOME
 TOTAL_INCOME <- data.frame(
   Metric = c("Mean", "NA Count", "Zero Count", "Q1", "Median", "Q3"),
@@ -291,18 +303,20 @@ db2 <- db2 %>% mutate(Sexo = case_when(
                                 sex == 1 ~ "Men" ))
 
 # ----> SALARY INCOME: SPOTTING % OF NA's to FILL 
-WAGES <- db2 %>% 
-  group_by(Occupation, Sexo) %>%  # Now also group by sex (gender)
+WAGES <- db2 %>%
+  group_by(Occupation, Sexo) %>%
   summarise(
     mean_age = mean(age, na.rm = TRUE),
-    mean_y_total_m = mean(y_salary_m, na.rm = TRUE),
-    na_or_zero_percentage_total = sum(is.na(y_salary_m) | y_salary_m <= 10000) / n() * 100
+    Q1_wages = mean(impa_oi[impa_oi <= quantile(impa_oi, 0.25, na.rm = TRUE)], na.rm = TRUE),
+    mean_wages = mean(impa_oi, na.rm = TRUE),
+    Q3_wages = mean(impa_oi[impa_oi >= quantile(impa_oi, 0.75, na.rm = TRUE)], na.rm = TRUE),
+    na_or_zero_percentage_total = sum(is.na(impa_oi) | impa_oi <= 10000) / n() * 100
   ) %>%
-  ungroup()
-WAGES <- WAGES %>% mutate(across(where(is.numeric), ~ round(.x, 0)))
+  ungroup() %>%
+  mutate(across(where(is.numeric), ~ round(.x, 0)))
 
-stargazer(WAGES, type = "latex", summary = FALSE, title = "Formal Workers Summary",
-          label = "tab:formal_workers", out = "2.1 WAGES.tex",
+stargazer(WAGES, type = "latex", summary = FALSE, title = "Wage description by Occupation and Sex",
+          label = "tab:WAGES", out = "2.1 WAGES.tex",
           digits = 1)
 
 # ------------------------- FILLING NA's VALUES ---------------------------------
@@ -315,8 +329,9 @@ db2 <- db2  %>%
 db2$maxEducLevel<- factor(db2$maxEducLevel)
 dummy_maxEducLevel <- as.data.frame(model.matrix(~ maxEducLevel - 1, data = db2))
 db2 <- cbind(db2, dummy_maxEducLevel)
-lM1 <- lm(y_salary_m ~ impa_oi + formal + maxEducLevel3 + maxEducLevel4 
-          + maxEducLevel5 + maxEducLevel6 + maxEducLevel7 , data = db2)
+
+lM1 <- lm(impa_oi ~ formal + maxEducLevel, data = db2)
+summary(lM1)
 
 # ----> EVALUATING LEVERAGE
 db2$leverage <- NA
@@ -328,14 +343,14 @@ db2$residuals[as.numeric(names(residuals(lM1)))] <- residuals(lM1)
 N <- nrow(db2)
 db2$id<- seq(1 , N)
 
-LEV <- ggplot(db2 , aes(y = leverage , x = id , color= Occupation, shape= as.factor(sex) )) +
+LEV <- ggplot(db2 , aes(y = leverage , x = id , color= Occupation )) +
   geom_point() + 
   theme_bw() + 
   labs(x = "Observations",  
        y = "Leverage",
        title = "")
 
-RES <- ggplot(db2 , aes(y = leverage , x = residuals  )) +
+RES <- ggplot(db2 , aes(y = leverage , x = residuals, color= Occupation )) +
   geom_point() + # add points
   theme_bw() + #black and white theme
   labs(x = "Residuals",  
@@ -353,10 +368,10 @@ db2 <-  db2 %>%
   dplyr:: filter(leverage<= cutt)
 
 # RE RUNNING THE MODEL
-lM2 <- lm(y_salary_m ~ impa_oi + formal + maxEducLevel3 + maxEducLevel4 + maxEducLevel5 + maxEducLevel6 + maxEducLevel7 , data = db2)
+lM2 <- lm(impa_oi ~ formal + maxEducLevel, data = db2)
 summary(lM2)
-db2$y_salary_m_P <- predict(lM1, newdata = db2)
-db2$y_salary_m <- ifelse(is.na(db2$y_salary_m), db2$y_salary_m_P,db2$y_salary_m)
+db2$impa_oi_P <- predict(lM1, newdata = db2)
+db2$impa_oi <- ifelse(is.na(db2$impa_oi), db2$impa_oi_P,db2$impa_oi)
 
 # ----> CHECKING FOR NEGATIVE VALUES
 non_positive_y_salary_m <- sum(db2$y_salary_m <= 0)
@@ -384,7 +399,7 @@ rm(db_miss,question, M,Nobs,mode_edu,dummy_maxEducLevel,lM1, Occupied_descriptio
 set.seed(1011)
 
 # ------------ RUNNING THE REGRESSION ------------------------------------------
-model_salary <- lm(log(y_salary_m) ~ age + I(age^2), data = db2)
+model_salary <- lm(log(impa_oi) ~ age + I(age^2), data = db2)
 summary(model_salary)
 
 db2$y_salary_m_st <- scale(db2$y_salary_m)
