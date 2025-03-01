@@ -28,21 +28,12 @@ p_load(stringr, # html to text
        sandwich)
 ```
 
-## 1. Introduction
-
-2.  Describe the data briefly, including its purpose, and any other
-    relevant information.
 
 ## 2. Data proccessing
 
-### 2.a) Data description
+### 2.a) Data description [On latex]
 
-(Describe the process of acquiring the data and if there are any
-restrictions to accessing/scraping these data.) For scrapping this data
-we will use ignaciomsarmiento repository and rvest to read the htmls. As
-this data frames are html tables, we will also use dplyr. [On latex]
-
-### 2.b) Web Scrapping
+### 2.b) Web Scrapping [Explanation on latex]
 
 <div>
 
@@ -67,14 +58,11 @@ this data frames are html tables, we will also use dplyr. [On latex]
 
 </div>
 
-We will use the definition the variable "ocu" already included on the
-data set which takes value 1 if the person is occupied (employed) and 0
-otherwise. \### 2.c) Data cleaning process
-
-#### 2.c.1) Filter and framming missing values
+#### 2.c.1) FRAMMING MISSING VALUES
 
 ```{r Cleaning of data set, echo=FALSE}
-# Filtering > 18 and occupied
+#--------------------FILTERING BY +18, EMPLOYED IN BOGOTÁ-----------------------
+
 db2 <- db %>% filter(age > 18, ocu == 1, dominio == "BOGOTA" )
 
 #------------ FRAMING MISSING VALUES -------------------------------------------
@@ -107,23 +95,15 @@ db2 <- db2 %>%
          cclasnr4, cclasnr5, cclasnr2, cclasnr6, cclasnr7, cclasnr8,
          cclasnr11, cclasnr3,y_otros_m,y_vivienda_m,y_gananciaIndep_m)
 
-skim(db2)
+#skim(db2)
 ```
 
-#### 2.c.2) Choosing variables
+#### 2.c.2) CHOOSING VARIABLES
 
-```{r Data exploration, echo=FALSE}
+```{r Data cleaning, echo=FALSE, message=FALSE, warning=FALSE}
 #------------ DATA CLEANING PROCESS: CONSISTENCY -------------------------------
-# OCCUPIED = FORMAL + INFORMAL. 
-Occupied_description <- db2 %>%
-  group_by(p6240) %>%
-  summarise(across(c(ocu, formal, informal), sum, na.rm = TRUE)) %>%
-  ungroup() %>%
- add_row(p6240 = NA, 
-          ocu = sum(.$ocu), 
-          formal = sum(.$formal), 
-          informal = sum(.$informal)) %>%
-  mutate(Occupation = if_else(is.na(p6240), "Total",
+# P6240 to text for tables.
+db2 <- db2 %>% mutate(Occupation = if_else(is.na(p6240), NA,
                               case_when(
                                 p6240 == 6 ~ "Other activity",
                                 p6240 == 5 ~ "Permanently unable to work",
@@ -132,51 +112,45 @@ Occupied_description <- db2 %>%
                                 p6240 == 2 ~ "Looking for work",
                                 p6240 == 1 ~ "Working",
                                 TRUE ~ as.character(p6240)
-                              ))) %>%
-  select(Occupation, ocu, formal, informal) %>%
+                              )))
+
+# OCCUPIED = FORMAL + INFORMAL. 
+Occupied_description <- db2 %>%
+  group_by(Occupation) %>%
+  summarise(across(c(ocu, formal, informal), sum, na.rm = TRUE)) %>%
+  ungroup() %>%
+ add_row(Occupation = "Total", 
+          ocu = sum(.$ocu), 
+          formal = sum(.$formal), 
+          informal = sum(.$informal)) %>%
+    select(Occupation, ocu, formal, informal) %>%
   mutate(across(c(ocu, formal, informal), ~ . / last(ocu)*100))
 
 Occupied_description <- Occupied_description[-c(7),]
 
 Occupied_description <- Occupied_description %>%
   mutate(across(c(ocu, formal, informal), ~ sprintf("%.1f", .x)))
-stargazer(Occupied_description, summary = FALSE, type = "latex", rownames = FALSE)
+stargazer(Occupied_description, summary = FALSE, type = "latex", rownames = FALSE,
+          out = "2.1.Occupied_description_table.txt")
 
-#------------ DATA CLEANING PROCESS: CHOOSING INCOME -------------------------------------------
-## OBSERVED vs IMPUTED VARIABLES
-obs_vars <- c("ie", "imdi", "impa", "ingtot", "iof1", "iof2", "iof3h", "iof3i", "iof6", "isa")
-imp_vars <- c("iees", "imdies", "impaes", "ingtotes", "iof1es", "iof2es", "iof3hes", "iof3ies", "iof6es", "isaes")
-titles   <- c("Especie", "Labor income non-occupied", "Main Activity", "Total", 
-              "Interes and dividends", "Retirement", "Household Aid", "Institutional Aid", 
+#------------ DATA CLEANING PROCESS: EXPLORING INCOME --------------------------
+
+#-------------------OBSERVED vs IMPUTED VARIABLES-------------------------------
+obs_vars <- c("ie",  "impa", "ingtot", "iof1", "iof2", "iof3h", "iof3i", "iof6", "isa")
+imp_vars <- c("iees", "impaes", "ingtotes", "iof1es", "iof2es", "iof3hes", "iof3ies", "iof6es", "isaes")
+titles   <- c("Especie", "Main Activity", "Total","Interes and dividends", "Retirement", "Household Aid", "Institutional Aid", 
               "Real State", "Second Activity")
 
-# ----> PROOF OF: imputed variables convering some missing values of observed income.
+# ----> PROOF OF: IMPUTED VARIABLES COVER SOME MISSING VALUES OF OBSERVED VARIABLES
 imp_vars2 <- c("iees", "imdies", "impaes", "iof1es", "iof2es", "iof3hes", "iof3ies", "iof6es", "isaes")
 missing_report <- c("cclasnr4", "cclasnr5", "cclasnr2", "cclasnr6", "cclasnr7", "cclasnr8", "cclasnr8", "cclasnr11", "cclasnr3")
 
 check <- function(db, imp_var, missing_var) {
   nrow(db2 %>% filter(!is.na(!!sym(imp_var)), !!sym(missing_var) != 1)) == 0
-}
-mapply(function(imp, miss) check(db2, imp, miss), imp_vars2, missing_report)
+} # MISSING VALUES OF OBSERVED VALUES ARE COVERED BY IMPUTED VALUES? RETURNS TRUE IF CONDITION IS MET
+mapply(function(imp, miss) check(db2, imp, miss), imp_vars2, missing_report); rm(imp_vars2,missing_report)
 
-
-# ----> Check the dispersion of imputed vs observed
-Stats <- mapply(function(ob, im, title) {
-  obs <- db2[[ob]]; imp <- db2[[im]]
-  q_obs <- quantile(obs, c(0.05, 0.25, 0.5, 0.75, 0.95), na.rm = TRUE)
-  q_imp <- quantile(imp, c(0.05, 0.25, 0.5, 0.75, 0.95), na.rm = TRUE)
-  
-  data.frame(
-    Statistic = c("Mean", "SD", "NA values", paste0("Quantile_", c(5, 25, 50, 75, 95))),
-    Obs = c(mean(obs, na.rm = TRUE), sd(obs, na.rm = TRUE), sum(is.na(obs)), round(q_obs, 2)),
-    Imp = c(mean(imp, na.rm = TRUE), sd(imp, na.rm = TRUE), sum(is.na(imp)), round(q_imp, 2))
-  ) %>% rename_with(~ paste0(title, "_", sub("^(Obs|Imp)$", "\\1", .x)), Obs:Imp)
-}, obs_vars, imp_vars, titles, SIMPLIFY = FALSE)
-
-Obs_vs_Imp <- Reduce(function(x, y) merge(x, y, by = "Statistic", sort = FALSE), Stats)
-
-# As we can see, imputed variables only cover certain NA values.
-# ----> Imputing
+# ---> FILLING EXTREME MISSING VALUES WITH IMPUTED VALUES
 for(i in seq_along(obs_vars)) {
   new_name <- paste0(obs_vars[i], "_oi")
   # Convert NULL to NA
@@ -186,24 +160,22 @@ for(i in seq_along(obs_vars)) {
   db2[[new_name]] <- ifelse(!is.na(imp_val), imp_val, obs_val)
 }
 
-# ----> Check constructed on data base vs Imputed+Observed: 
-
-# For avoiding colinearity, we're going to check if two variables contain the same information.
-# so that we only keep the most relevant one of the repeated information.
+#-------------- "Y" CONSTRUCTED VARIABLES VS OBSERVES+IMPUTED CORRECTIONS-------
+# -----> CHOOSING BETWEEEN MANUEL'S/ IGNACIO VARIABLES AND OBSERVERD+IMPUTED
 
 #  CORRELATION PLOT
 db_temp <- db2 %>%
   mutate(
-    Others = ie_oi,
-    Total = ingtot_oi,
-    `Informal` = ifelse(informal == 1, impa_oi, NA),
-    `First Activity` = ifelse(formal == 1, impa_oi, NA),
-    `Labor Income` = ifelse(p6240 == 4, impa_oi, NA)
+    Other = ie_oi,
+    `Total Income` = ingtot_oi,
+    `Informal Salary` = ifelse(informal == 1, impa_oi, NA),
+    `Formal Salary` = ifelse(formal == 1, impa_oi, NA),
+    `Domestic Work` = ifelse(p6240 == 4, impa_oi, NA)
   ) %>%
-  select( Others, `Informal`, `First Activity`, Total,
-    `Labor Income` = iof6_oi, `M. Others` = y_otros_m,
-    `M. Formal Salary` = y_ingLab_m, `M. Total` = y_total_m,
-    `M. Labor Income` = y_vivienda_m)
+  select( Other, `Informal Salary`, `Formal Salary`,`Total Income`,`Domestic Work`,
+          `Y. Others` = y_otros_m,`Y. Informal Salary` = y_gananciaNeta_m,`Y. Formal Salary` = y_ingLab_m,
+          `Y. Total Income` = y_total_m,`Y. Domestic Work` = y_vivienda_m,
+          )
 
 db_temp <- db_temp %>% 
   mutate_all(~ ifelse(is.na(.) | . == 0, 0, 1))
@@ -216,179 +188,197 @@ corrplot(
   tl.col = "black", tl.srt = 90,   tl.cex = 0.8, cl.cex = 0.9,                
   addCoef.col = "black", number.cex = 0.8,mar = c(2,2,2,2))
 
-# Given this results, we will proceed filling NA values of labor 
-# associated pre-constructed variables with the imputed data we elaborated.
 
-#  Choosing total: 
-t.test(db_temp$Total, db_temp$`M. Total`, paired = TRUE)
+# ----> CONCLUSION ON LABOR INCOME: We will fill NA values of y_labor_m with observerved+imputed 
 
-db_temp <-  db2 %>%  select(ingtot_oi,y_total_m,)
-db_temp %>%
-  summarise(across(everything(), ~ sum(is.na(.) | (. == 0), na.rm = TRUE)))
+# ----> CHOOSING TOTAL INCOME
+TOTAL_INCOME <- data.frame(
+  Metric = c("Mean", "NA Count", "Zero Count", "Q1", "Median", "Q3"),
+  
+  ingtot_oi = sapply(list(
+    function(x) mean(x, na.rm = TRUE), 
+    function(x) sum(is.na(x)), 
+    function(x) sum(x == 0, na.rm = TRUE),
+    function(x) quantile(x, 0.25, na.rm = TRUE), 
+    function(x) median(x, na.rm = TRUE), 
+    function(x) quantile(x, 0.75, na.rm = TRUE)
+  ), function(f) f(db2$ingtot_oi)),
+  
+  y_total_m = sapply(list(
+    function(x) mean(x, na.rm = TRUE), 
+    function(x) sum(is.na(x)), 
+    function(x) sum(x == 0, na.rm = TRUE),
+    function(x) quantile(x, 0.25, na.rm = TRUE), 
+    function(x) median(x, na.rm = TRUE), 
+    function(x) quantile(x, 0.75, na.rm = TRUE)
+  ), function(f) f(db2$y_total_m))
+)
 
+TOTAL_INCOME$Difference <- with(TOTAL_INCOME, ingtot_oi - y_total_m)
+stargazer(TOTAL_INCOME, summary = FALSE, type = "latex",title = "Total Income variables comparison",
+          label = "tab:total_income",out = "2.1 TOTAL INCOME.tex")
 
-# Differences between the two group average 75.651 COP (significant) But ingtot_oi has less
-# missing values/values at 0, thus, we're choosing this variable.
+#------------------ EXTRA VALIDATION -------------------------------------------
+# ----> CHECKING DISPERSION OF OBSERVED VS IMPUTED 
+Stats <- mapply(function(ob, im, title) {
+  obs <- db2[[ob]]; imp <- db2[[im]]
+  q_obs <- quantile(obs, c(0.05, 0.25, 0.5, 0.75, 0.95), na.rm = TRUE)
+  q_imp <- quantile(imp, c(0.05, 0.25, 0.5, 0.75, 0.95), na.rm = TRUE)
+  
+  data.frame(
+    Statistic = c("Mean", "SD", "NA values", paste0("Quantile_", c(5, 25, 50, 75, 95))),
+    Obs = c(mean(obs, na.rm = TRUE), sd(obs, na.rm = TRUE), sum(is.na(obs)), round(q_obs, 2)),
+    Imp = c(mean(imp, na.rm = TRUE), sd(imp, na.rm = TRUE), sum(is.na(imp)), round(q_imp, 2))
+  ) %>% rename_with(~ paste0(title, "_", sub("^(Obs|Imp)$", "\\1", .x)), Obs:Imp)
+}, obs_vars, imp_vars, titles, SIMPLIFY = FALSE)
+Obs_vs_Imp <- Reduce(function(x, y) merge(x, y, by = "Statistic", sort = FALSE), Stats)
 
+# ---> DIFFERENCES OBSERVED VS IMPUTED
+ cols <- 2:ncol(Obs_vs_Imp)
+ obs_idx <- cols[seq(1, length(cols), by = 2)]
+ imp_idx <- cols[seq(2, length(cols), by = 2)]
+ Differences <- Obs_vs_Imp[, imp_idx] - Obs_vs_Imp[, obs_idx]
+ colnames(Differences) <- titles
+ Differences <- cbind(Statistic = Obs_vs_Imp[, 1], Differences)
+ Differences <- Differences[-c(9),] 
+ stargazer(Differences, summary = FALSE, type = "latex", rownames = FALSE,
+           out = "2.2.Differences Observed vs Imputed.txt")
+
+# ----> OJALÁ SALGA
+# -----> EVALUATING DENSITY OF OBSERVED VS OBSERVED +IMPUTED
+# obs_vars <- c("ie",  "impa", "ingtot", "iof1", "iof6", "isa")
+# obs_imp <- c("ie_oi", "impa_oi", "ingtot_oi", "iof6_oi", "isa_oi")
+# titles   <- c("Especie", "Main Activity", "Total","Interes and dividends","Real State", "Second Activity")
+# 
+# par(mfrow = c(2, 5), oma = c(0, 0, 5, 0))  
+#  for(i in seq_along(obs_vars)) {
+#    # Extract observed and imputado data
+#    data_obs <- db2[[obs_vars[i]]]
+#    data_imp <- db2[[obs_imp[i]]]
+#    q_obs <- quantile(data_obs, probs = c(0.05, 0.95), na.rm = TRUE) # Exclude extreme percentiles
+#    data_obs <- data_obs[data_obs >= q_obs[1] & data_obs <= q_obs[2]] 
+#    q_imp <- quantile(data_imp, probs = c(0.05, 0.95), na.rm = TRUE)
+#    data_imp <- data_imp[data_imp >= q_imp[1] & data_imp <= q_imp[2]]
+#    dens_obs <- density(data_obs, na.rm = TRUE) # Compute density
+#    dens_imp <- density(data_imp, na.rm = TRUE)
+#    
+#    xlim <- range(c(dens_obs$x, dens_imp$x), na.rm = TRUE)
+#    ylim <- range(c(dens_obs$y, dens_imp$y), na.rm = TRUE)
+#    
+#    plot(dens_obs, xlim = xlim, ylim = ylim,
+#         main = titles[i], xlab = "", ylab = "Density",
+#         col = "black", lwd = 2, type = "l")
+#    
+#    lines(dens_imp, col = "red", lwd = 2)
+#  }
+#  
+#  par(fig = c(0, 1, 0.92, 1), new = TRUE)
+#  plot(0, type = "n", axes = FALSE, xlab = "", ylab = "")
+#  legend("center", legend = c("Observed", "Imputed"),
+#         col = c("black", "red"), lty = 1, horiz = TRUE, bty = "n", cex = 0.8)
 
 ```
 
-### 2.d) Descriptive analysis
+### 2.d) FILLING NA'S
 
-```{r Data exploration, echo=FALSE}
-
+```{r Filling NA's, echo=FALSE, message=FALSE, warning=FALSE}
 # ----------------------DATA STATISTICAL DESCRIPTION ---------------------------
-# Formal
-# Filter for formal workers
-Formal <- db2 %>%
-  filter(formal == 1) %>%  
-  group_by(Occupation, sex) %>%  # Now also group by sex (gender)
+db2 <- db2 %>% mutate(Sexo = case_when(
+                                sex == 0 ~ "Women",
+                                sex == 1 ~ "Men" ))
+db2 <- db2 %>% mutate(Sexo = case_when(
+                                sex == 0 ~ "Women",
+                                sex == 1 ~ "Men" ))
+
+# ----> SALARY INCOME: SPOTTING % OF NA's to FILL 
+WAGES <- db2 %>% 
+  group_by(Occupation, Sexo) %>%  # Now also group by sex (gender)
   summarise(
     mean_age = mean(age, na.rm = TRUE),
-    mean_y_total_m = mean(ingtot_oi, na.rm = TRUE),
-    na_or_zero_percentage_total = sum(is.na(ingtot_oi) | ingtot_oi == 0) / n() * 100
+    mean_y_total_m = mean(y_salary_m, na.rm = TRUE),
+    na_or_zero_percentage_total = sum(is.na(y_salary_m) | y_salary_m <= 10000) / n() * 100
   ) %>%
   ungroup()
+WAGES <- WAGES %>% mutate(across(where(is.numeric), ~ round(.x, 0)))
 
-# Informal 
-Informal <- db2 %>%
-  filter(informal == 1) %>% 
-  group_by(Occupation, sex) %>%  # Now also group by sex (gender)
-  summarise(
-    mean_age = mean(age, na.rm = TRUE),
-    mean_y_total_m = mean(ingtot_oi, na.rm = TRUE),
-    na_or_zero_percentage_total = sum(is.na(ingtot_oi) | ingtot_oi == 0) / n() * 100
-  ) %>%
-  ungroup()
+stargazer(WAGES, type = "latex", summary = FALSE, title = "Formal Workers Summary",
+          label = "tab:formal_workers", out = "2.1 WAGES.tex",
+          digits = 1)
 
-#--- METERLE ACÁ NIVEL EDUCATIVO
-
-```
-
-#### 2.d.1) Filling NA's values
-
-```{r Filling NA's, echo=FALSE}
 # ------------------------- FILLING NA's VALUES ---------------------------------
-
-# ----> MAXEDUC LEVEL: Max - Level of Education.
-# Filling with mean as only 10% of values are missing
+# ---> MAX LEVEL EDU: ONLY 10% MISSING. FILL WITH MODE
 mode_edu <- as.numeric(names(sort(table(db2$maxEducLevel), decreasing = TRUE)[1]))
 db2 <- db2  %>%
   mutate(maxEducLevel = ifelse(is.na(maxEducLevel) == TRUE, mode_edu , maxEducLevel))
 
-# ----> LABORAL INCOME: FORMAL
-# We'll fill "y_salary_m" null values with the observed+imputed data
-# Creating the dummy variable for regressing over y_salary_m and y_ingLab_m
-
-# Mincer approx.
+# ----> FILLING SALARY VARIABLE. 
 db2$maxEducLevel<- factor(db2$maxEducLevel)
 dummy_maxEducLevel <- as.data.frame(model.matrix(~ maxEducLevel - 1, data = db2))
 db2 <- cbind(db2, dummy_maxEducLevel)
-lM1 <- lm(y_salary_m ~ impa_oi + maxEducLevel3 + maxEducLevel4 
+lM1 <- lm(y_salary_m ~ impa_oi + formal + maxEducLevel3 + maxEducLevel4 
           + maxEducLevel5 + maxEducLevel6 + maxEducLevel7 , data = db2)
+summary(lM1)
+
+# ----> EVALUATING LEVERAGE
+db2$leverage <- NA
+db2$leverage[as.numeric(names(hatvalues(lM1)))] <- hatvalues(lM1)
+
+db2$residuals <- NA
+db2$residuals[as.numeric(names(residuals(lM1)))] <- residuals(lM1)
+
+N <- nrow(db2)
+db2$id<- seq(1 , N)
+
+LEV <- ggplot(db2 , aes(y = leverage , x = id , color= Occupation, shape= as.factor(sex) )) +
+  geom_point() + 
+  theme_bw() + 
+  labs(x = "Observations",  
+       y = "Leverage",
+       title = "")
+
+
+RES <- ggplot(db2 , aes(y = leverage , x = residuals  )) +
+  geom_point() + # add points
+  theme_bw() + #black and white theme
+  labs(x = "Residuals",  
+       y = "Leverage",
+       title = "") # labels
+
+
+grid.arrange(LEV, RES, ncol = 2)
+
+# CUTTING HIGH LEVERAGE OBSERVATIONS
+p <- mean(db2$leverage, na.rm = TRUE)
+p
+cutt <- 3*p
+
+db2 <-  db2 %>% 
+  dplyr:: filter(leverage<= cutt)
+
+# RE RUNNING THE MODEL
+lM2 <- lm(y_salary_m ~ impa_oi + formal + maxEducLevel3 + maxEducLevel4 + maxEducLevel5 + maxEducLevel6 + maxEducLevel7 , data = db2)
+summary(lM2)
 db2$y_salary_m_P <- predict(lM1, newdata = db2)
-db2$y_salary_m <- ifelse(is.na(db2$y_salary_m) & db2$p6240 == 1 & db2$formal == 1, 
-                          db2$y_salary_m_P, 
-                          db2$y_salary_m)
+db2$y_salary_m <- ifelse(is.na(db2$y_salary_m), db2$y_salary_m_P,db2$y_salary_m)
 
-# ----> LABORAL INCOME: INFORMAL
-# 21.5% missing. 
-db2$y_gananciaIndep_m
-lM1 <- lm(y_gananciaIndep_m ~ impa_oi + informal + maxEducLevel3 
-          + maxEducLevel4 + maxEducLevel5 + maxEducLevel6 + maxEducLevel7 , data = db2)
-db2$y_gananciaIndep_m_P <- predict(lM1, newdata = db2)
-db2$y_gananciaIndep_m <- ifelse(
-  is.na(db2$y_gananciaIndep_m) & db2$p6240 == 1 & db2$informal == 1, 
-  db2$y_gananciaIndep_m_P, 
-  db2$y_gananciaIndep_m
-)
+# ----> CHECKING FOR NEGATIVE VALUES
+non_positive_y_salary_m <- sum(db2$y_salary_m <= 0)
+cat("Number of non-positive values in y_salary_m:", non_positive_y_salary_m, "\n")
 
 
-# ----> FILTERED DATA BASE
-
-# ----------------------COSAS QUE QUIERO METER ---------------------------------
-# Set up a 2x5 grid with extra top space for a common legend
-# Mirando a ver si sí va !! No he podido ponerle la leyenda en común FAK 
-# par(mfrow = c(2, 5), oma = c(0, 0, 5, 0))  
-# for(i in seq_along(obs_vars)) {
-#   # Extract observed and imputado data
-#   data_obs <- db2[[obs_vars[i]]]
-#   data_imp <- db2[[imp_vars[i]]]
-#   
-#   # Exclude outliers based on 5th–95th percentiles
-#   q_obs <- quantile(data_obs, probs = c(0.05, 0.95), na.rm = TRUE)
-#   data_obs <- data_obs[data_obs >= q_obs[1] & data_obs <= q_obs[2]]
-#   
-#   q_imp <- quantile(data_imp, probs = c(0.05, 0.95), na.rm = TRUE)
-#   data_imp <- data_imp[data_imp >= q_imp[1] & data_imp <= q_imp[2]]
-#   
-#   # Compute density estimates for each (line plot)
-#   dens_obs <- density(data_obs, na.rm = TRUE)
-#   dens_imp <- density(data_imp, na.rm = TRUE)
-#   
-#   # Set common x and y limits
-#   xlim <- range(c(dens_obs$x, dens_imp$x), na.rm = TRUE)
-#   ylim <- range(c(dens_obs$y, dens_imp$y), na.rm = TRUE)
-#   
-#   # Plot the observed density (black line)
-#   plot(dens_obs, xlim = xlim, ylim = ylim,
-#        main = titles[i], xlab = "", ylab = "Density",
-#        col = "black", lwd = 2, type = "l")
-#   # Overlay the imputado density (red line)
-#   lines(dens_imp, col = "red", lwd = 2)
-# }
-# 
-# # Create a new plotting region at the top for the common legend
-# par(fig = c(0, 1, 0.92, 1), new = TRUE)
-# plot(0, type = "n", axes = FALSE, xlab = "", ylab = "")
-# legend("center", legend = c("Observed", "Imputed"),
-#        col = c("black", "red"), lty = 1, horiz = TRUE, bty = "n", cex = 0.8)
-
-# # Export differences Imputed - Observed
-# cols <- 2:ncol(Obs_vs_Imp)
-# obs_idx <- cols[seq(1, length(cols), by = 2)]
-# imp_idx <- cols[seq(2, length(cols), by = 2)]
-# Differences <- Obs_vs_Imp[, imp_idx] - Obs_vs_Imp[, obs_idx]
-# colnames(Differences) <- titles
-# Differences <- cbind(Statistic = Obs_vs_Imp[, 1], Differences)
-# Differences <- Differences[-c(9),] 
-# stargazer(Differences, summary = FALSE, type = "latex", rownames = FALSE)
+# ----> CHECKING RESIDUALS
+png("2.3 Residuals removing HIGH LEVERAGE.png", width = 800, height = 600) 
+par(mfrow = c(2, 2))
+plot(lM2)
+dev.off()
 
 
+rm(db_miss,question, M,Nobs,mode_edu,dummy_maxEducLevel,lM1, Occupied_description,imp_vars,obs_vars,titles,Stats,Obs_vs_Imp, imp_idx,obs_idx,cols, check,lM2,lM1,N,WAGES,TOTAL_INCOME,RES,LEV)
 
-# ---> Esto sí vale verga
+```
 
+```{r Data exploration, echo=FALSE, message=FALSE}
 
-
-#  As we already imputed values for extreme variables. Now wer're going to fill with the mean 
-#  the incosistent data points and as we saw some people that repor
-# income_sources <- c("ie_oi", "imdi_oi", "impa_oi","iof1_oi", "iof2_oi", "iof3h_oi", "iof3i_oi", "iof6_oi", "isa_oi")
-# missing_report <- c("cclasnr4", "cclasnr5", "cclasnr2", "cclasnr6", "cclasnr7", "cclasnr8", "cclasnr8", "cclasnr11", "cclasnr3")
-# 
-# missing_stats <- list()
-# missing_stats <- map2(income_sources, missing_report, function(income_var, missing_var) {
-#   db2 %>%
-#     group_by(p6240 = case_when(as.character(p6240),
-#                                 `6` = "Other activity",
-#                                 `5` = "Permanently unable to work",
-#                                 `4` = "Domestic work",
-#                                 `3` = "Studying",
-#                                 `2` = "Looking for work",
-#                                 `1` = "Working")) %>%
-#     summarise(
-#       !!paste0(income_var, "Original_missing_count") := sum(is.na(.data[[income_var]])),
-#       !!paste0(income_var, "_zero_count") := sum(.data[[income_var]] == 0, na.rm = TRUE),
-#       !!paste0(income_var, "_Already imputated") := sum(.data[[missing_var]], na.rm = TRUE)
-#     ) %>%
-#     ungroup()
-# })
-# 
-# # Merge all tables in the list by p6240
-# merged_income_stats <- reduce(missing_stats, full_join, by = "p6240")
-# write_xlsx(merged_income_stats, "merged_income_stats.xlsx")
-summary(db2$y_salary_m)
-
-rm(db_miss,question, M,Nobs,mode_edu,quantiles,dummy_maxEducLevel,lM1,y_ingLab_m_P, Occupied_description,imp_vars,obs_vars,titles,Stats,Obs_vs_Imp, imp_idx,imp_vars,obs_idx,cols, check)
 
 ```
 
@@ -411,28 +401,26 @@ summary(model_salary_st)
 
 # ------------ EXPORTING TO LATEX R --------------------------------------------
 stargazer(model_salary, type = "latex",
-          title = "Monthly Income Salary relation with Age",
+          title = "Monthly Income Salary Relation with Age",
           covariate.labels = c("Age", "Age Squared"),
-          dep.var.labels = "Labor monthly income*",
+          dep.var.labels = "Labor Monthly Income*",
           star.cutoffs = c(0.1, 0.05, 0.01),
           ci = TRUE, ci.level = 0.95,
-          out = "Regresion_P3.tex",
-          notes = c("*Labor monthly income is measured in logarithmic form. Labor income includes formal and informal workers whose main income source is labor. 
-          It includes tips and commissions. The variable was taken from the Gran Encuesta Integrada de Hogares (GEIH), and extreme values were imputed.",
-          "Statistical significance levels: *** p<0.01, ** p<0.05, * p<0.1.")
+          out = "Regression_P3.tex",
+          notes = c("*Labor monthly income is measured in logarithmic form. It includes income from both formal and informal work, with labor as the main income source, including tips and commissions. The data is sourced from the Gran Encuesta Integrada de Hogares (GEIH), with extreme values imputed.",
+                    "Statistical significance levels: *** p<0.01, ** p<0.05, * p<0.1.")
 )
 
 stargazer(model_salary_st, type = "latex",
-          title = "Monthly Income Salary relation with Age",
+          title = "Monthly Income Salary Relation with Age (Standardized)",
           covariate.labels = c("Age**", "Age Squared"),
-          dep.var.labels = "Labor monthly income*",
+          dep.var.labels = "Labor Monthly Income*",
           star.cutoffs = c(0.1, 0.05, 0.01),
           ci = TRUE, ci.level = 0.95,
-          out = "Regresion_P3_sd.tex",
-          notes = c("*Labor monthly income is measured in logarithmic form and was stadarized. Labor income includes formal and informal workers whose main income source is labor. 
-          It includes tips and commissions. The variable was taken from the Gran Encuesta Integrada de Hogares (GEIH), and extreme values were imputed.",
-          "** Age was stadarized",
-          "Statistical significance levels: *** p<0.01, ** p<0.05, * p<0.1.")
+          out = "Regression_P3_sd.tex",
+          notes = c("*Labor monthly income is measured in logarithmic form and standardized. It includes income from both formal and informal work, with labor as the main income source, including tips and commissions. The data is sourced from the Gran Encuesta Integrada de Hogares (GEIH), with extreme values imputed.",
+                    "**Age was standardized.",
+                    "Statistical significance levels: *** p<0.01, ** p<0.05, * p<0.1.")
 )
 # ------------ PLOTTING AGE-EARNINGS PROFILE -----------------------------------
 
@@ -441,6 +429,8 @@ ggplot(db2, aes(x = age, y = log(y_salary_m))) +
   geom_point(alpha = 0.5) +
   geom_smooth(method = "lm", formula = y ~ x + I(x^2), color = "red") +
   ggtitle("Quadratic Regression: log(y_salary_m) ~ Age")
+
+summary(db2$y_salary_m)
 
 ```
 
@@ -464,7 +454,6 @@ Análisis preliminar de las regresiones:
 
 
 ```{r Evaluating residuals, echo=FALSE}
-
 png("Reg1_P3.png", width = 800, height = 600) 
 par(mfrow = c(2, 2))
 plot(model_salary)
@@ -514,7 +503,6 @@ anova(model_salary , model_salary2)
 #           covariate.labels=c("Mean Ocu Income","N under 18","Male",
 #                              "Hausehold Head","Age", "N under 18 x Male" ))
 ```
-
 
 ## 4. The gender earnings GAP
 ```{r Unconditional Gender Wage Gap}
