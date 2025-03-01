@@ -19,13 +19,16 @@ p_load(stringr, # html to text
        dplyr, # managing tables
        corrplot,#Correlation plot
        reshape2, # Long format for table 
-       stargazer,
-       gridExtra,
+       stargazer, # Latex tables
+       gridExtra, # visualizing missing data
+       furrr,
+       gridExtra, #multiple graphs
        boot,
        car,
        lmtest,
        caret, 
-       sandwich)
+       sandwich,
+       performance)
 ```
 
 
@@ -38,26 +41,29 @@ p_load(stringr, # html to text
 <div>
 
 ```{r 2.b) Scrapping}
-    # Link
-    base <- "https://ignaciomsarmiento.github.io/GEIH2018_sample/pages/geih_"
-    htmls <- paste0(base,"page_",1:10, ".html")
+plan(multisession, workers = parallel::detectCores() - 1) 
+base <- "https://ignaciomsarmiento.github.io/GEIH2018_sample/pages/geih_"
+htmls <- paste0(base, "page_", 1:10, ".html")
 
-    tables_list <- list()
-    for (url in htmls) {
-      web_page <- read_html(url)
-      table <- web_page %>%
-        html_nodes("table.table-striped") %>%
-        html_table(fill = TRUE)
-      tables_list[[url]] <- table
-    }
+scrape_table <- function(url) {
+  web_page <- read_html(url)
+  table <- web_page %>%
+    html_nodes("table.table-striped") %>%
+    html_table(fill = TRUE)
+  return(table[[1]])  # Extraer el primer elemento (que es la tabla real)
+}
+tables_list <- future_map(htmls, scrape_table)
+db <- bind_rows(tables_list) %>% select(-...1)
+rm(tables_list, base, htmls)
 
+plan(sequential) 
     db = bind_rows(tables_list) %>% select(-...1)
     rm(tables_list,web_page,table,base,htmls,url)
-
 ```
 
 </div>
 
+### 2.c) Data cleaning process
 #### 2.c.1) FRAMMING MISSING VALUES
 
 ```{r Cleaning of data set, echo=FALSE}
@@ -94,7 +100,6 @@ db2 <- db2 %>%
          iees, imdies, impaes,  iof1es, iof2es, iof3hes, iof3ies, iof6es, isaes,
          cclasnr4, cclasnr5, cclasnr2, cclasnr6, cclasnr7, cclasnr8,
          cclasnr11, cclasnr3,y_otros_m,y_vivienda_m,y_gananciaIndep_m)
-
 #skim(db2)
 ```
 
@@ -146,8 +151,8 @@ imp_vars2 <- c("iees", "imdies", "impaes", "iof1es", "iof2es", "iof3hes", "iof3i
 missing_report <- c("cclasnr4", "cclasnr5", "cclasnr2", "cclasnr6", "cclasnr7", "cclasnr8", "cclasnr8", "cclasnr11", "cclasnr3")
 
 check <- function(db, imp_var, missing_var) {
-  nrow(db2 %>% filter(!is.na(!!sym(imp_var)), !!sym(missing_var) != 1)) == 0
-} # MISSING VALUES OF OBSERVED VALUES ARE COVERED BY IMPUTED VALUES? RETURNS TRUE IF CONDITION IS MET
+  nrow(db2 %>% filter(!is.na(!!sym(imp_var)), !!sym(missing_var) != 1)) == 0} 
+  # MISSING VALUES OF OBSERVED VALUES ARE COVERED BY IMPUTED VALUES? RETURNS TRUE IF CONDITION IS MET
 mapply(function(imp, miss) check(db2, imp, miss), imp_vars2, missing_report); rm(imp_vars2,missing_report)
 
 # ---> FILLING EXTREME MISSING VALUES WITH IMPUTED VALUES
@@ -156,7 +161,6 @@ for(i in seq_along(obs_vars)) {
   # Convert NULL to NA
   imp_val <- if (!is.null(db2[[imp_vars[i]]])) db2[[imp_vars[i]]] else rep(NA, nrow(db2))
   obs_val <- if (!is.null(db2[[obs_vars[i]]])) db2[[obs_vars[i]]] else rep(NA, nrow(db2))
-
   db2[[new_name]] <- ifelse(!is.na(imp_val), imp_val, obs_val)
 }
 
@@ -187,9 +191,6 @@ corrplot(
   col = colorRampPalette(c("lightgray", "white", "blue"))(200),  
   tl.col = "black", tl.srt = 90,   tl.cex = 0.8, cl.cex = 0.9,                
   addCoef.col = "black", number.cex = 0.8,mar = c(2,2,2,2))
-
-
-# ----> CONCLUSION ON LABOR INCOME: We will fill NA values of y_labor_m with observerved+imputed 
 
 # ----> CHOOSING TOTAL INCOME
 TOTAL_INCOME <- data.frame(
@@ -317,7 +318,6 @@ dummy_maxEducLevel <- as.data.frame(model.matrix(~ maxEducLevel - 1, data = db2)
 db2 <- cbind(db2, dummy_maxEducLevel)
 lM1 <- lm(y_salary_m ~ impa_oi + formal + maxEducLevel3 + maxEducLevel4 
           + maxEducLevel5 + maxEducLevel6 + maxEducLevel7 , data = db2)
-summary(lM1)
 
 # ----> EVALUATING LEVERAGE
 db2$leverage <- NA
@@ -336,14 +336,12 @@ LEV <- ggplot(db2 , aes(y = leverage , x = id , color= Occupation, shape= as.fac
        y = "Leverage",
        title = "")
 
-
 RES <- ggplot(db2 , aes(y = leverage , x = residuals  )) +
   geom_point() + # add points
   theme_bw() + #black and white theme
   labs(x = "Residuals",  
        y = "Leverage",
        title = "") # labels
-
 
 grid.arrange(LEV, RES, ncol = 2)
 
@@ -365,16 +363,13 @@ db2$y_salary_m <- ifelse(is.na(db2$y_salary_m), db2$y_salary_m_P,db2$y_salary_m)
 non_positive_y_salary_m <- sum(db2$y_salary_m <= 0)
 cat("Number of non-positive values in y_salary_m:", non_positive_y_salary_m, "\n")
 
-
 # ----> CHECKING RESIDUALS
 png("2.3 Residuals removing HIGH LEVERAGE.png", width = 800, height = 600) 
 par(mfrow = c(2, 2))
 plot(lM2)
 dev.off()
 
-
 rm(db_miss,question, M,Nobs,mode_edu,dummy_maxEducLevel,lM1, Occupied_description,imp_vars,obs_vars,titles,Stats,Obs_vs_Imp, imp_idx,obs_idx,cols, check,lM2,lM1,N,WAGES,TOTAL_INCOME,RES,LEV)
-
 ```
 
 ```{r Data exploration, echo=FALSE, message=FALSE}
@@ -383,7 +378,6 @@ rm(db_miss,question, M,Nobs,mode_edu,dummy_maxEducLevel,lM1, Occupied_descriptio
 ```
 
 ## 3. Age wage profile
-
 ### 3.1 Running the regression
 
 ```{r Age wage Regression, echo=FALSE, warning=FALSE}
@@ -731,4 +725,178 @@ if (all(!is.na(c(age_coef, age_squared_coef, female_age_coef, female_age_squared
   cat("Missing coefficients for calculation.\n")
 }
 
+```
+The statistical significance of the model is evident from the extremely low p-values associated with both the Breusch-Pagan test for heteroscedasticity and the Durbin-Watson test for autocorrelation, these results indicate strong evidence against the null hypotheses, revealing violations in the homoscedasticity and independence of errors assumptions, respectively. Economically, the model's findings suggest that the gender variable (female) plays a significant role in explaining variations in the log-transformed salary, highlighting potential gender disparities in earnings, however, the presence of heteroscedasticity and autocorrelation implies that traditional inference may be flawed, necessitating robust econometric techniques to ensure the validity of the estimated effects.
+
+## 5. Predicting earnings
+
+Split the sample into two: a training (70%) and a testing (30%) sample. (Don’t
+forget to set a seed to achieve reproducibility. In R, for example you can use
+set.seed(10101), where 10101 is the seed.)
+
+```{r}
+set.seed(1541)
+
+db2 = db2 %>%
+  mutate(oficio2 = case_when(
+    oficio %in% c(1, 2, 9, 12) ~ "Profesionales Altamente Calificados",
+    oficio %in% c(3, 5, 7, 8) ~ "Técnicos y Tecnólogos",
+    oficio %in% c(11, 31, 32, 33, 39) ~ "Administración y Oficinas",
+    oficio %in% c(41, 43, 45) ~ "Ventas y Comerciantes",
+    oficio %in% c(16, 17, 15) ~ "Arte y Cultura",
+    oficio %in% c(54, 57, 58) ~ "Servicios Personales",
+    oficio %in% c(98, 97, 36, 37) ~ "Transporte y Logística",
+    oficio %in% c(61, 62, 71) ~ "Agricultura y Minería",
+    oficio %in% c(81, 83, 85, 95) ~ "Oficios Industriales",
+    oficio %in% c(21, 40) ~ "Directivos y Gerentes",
+    TRUE ~ "Otros"
+  ))
+
+data = db2 |> 
+  drop_na(y_salary_m)
+
+in_train = createDataPartition(y = data$y_salary_m, 
+                               p = 0.7, 
+                               list = FALSE)
+training = data %>% 
+  filter(row_number() %in% in_train)
+
+test = data %>% 
+  filter(!row_number() %in% in_train)
+
+for (var in c("maxEducLevel", "estrato1", "oficio2")) {
+  training[[var]] <- as.factor(training[[var]])
+  test[[var]] <- factor(test[[var]], levels = levels(training[[var]]))
+}
+
+```
+
+Report and compare the predictive performance in terms of the RMSE of all
+the previous specifications with at least five (5) additional specifications that
+explore non-linearities and complexity.
+
+```{r}
+formula_1 = formula(log(y_salary_m) ~ age + I(age^2))
+formula_2 = formula(log(y_salary_m) ~ female)
+formula_3 = formula(log(y_salary_m) ~ female + age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1))
+
+formula_4 = formula(log(y_salary_m) ~ female + age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1) + factor(oficio2))
+
+formula_5 = formula(log(y_salary_m) ~ female * factor(maxEducLevel) + age + I(age^2) + informal + factor(estrato1) + factor(oficio2))
+
+formula_6 = formula(log(y_salary_m) ~ female * factor(maxEducLevel) + poly(age, 3) + informal * factor(maxEducLevel) + factor(estrato1) + factor(oficio2))
+
+formula_7 = formula(log(y_salary_m) ~ female * factor(maxEducLevel) + poly(age, 3) + informal * factor(maxEducLevel) + factor(estrato1) * factor(maxEducLevel) + factor(oficio2))
+
+formula_8 = formula(log(y_salary_m) ~ female * factor(maxEducLevel) * factor(estrato1) + poly(age, 3) + informal * factor(maxEducLevel) + factor(oficio2))
+
+```
+
+Calculate the predictive performance 
+
+
+```{r}
+
+formulas = list(formula_1, formula_2, formula_3, formula_4, 
+                formula_5, formula_6, formula_7, formula_8)
+
+models = map(formulas, ~lm(.x, data = training, weights = fex_c))
+
+evaluate_model = function(model) {
+  
+  prediction = predict(model, newdata = test)
+  
+  result = list("RMSE" = RMSE(pred = exp(prediction), obs = test$y_salary_m),
+                "Prediction" = exp(prediction),
+                "Resid" = test$y_salary_m-exp(prediction))
+  return(result)
+}
+
+result = map(models, evaluate_model)
+rmse = map_dbl(result, "RMSE")
+
+```
+
+For the specification with the lowest prediction error, explore those observations that seem to ”miss the mark.” To do so, compute the prediction errors
+in the test sample, and examine its distribution. Are there any observations
+in the tails of the prediction error distribution? Are these outliers potential
+people that the DIAN should look into, or are they just the product of a
+flawed model?
+
+```{r}
+
+check_model(models[[7]])
+
+qqnorm(result[[7]][["Resid"]])
+
+```
+LOOCV. For the two models with the lowest predictive error in the previous section, calculate the predictive error using Leave-one-out-cross-validation
+(LOOCV). Compare the results of the test error with those obtained with the
+validation set approach and explore the potential links with the influence statistic. (Note: when attempting this subsection, the calculations can take a long
+time, depending on your coding skills, plan accordingly!)
+
+
+```{r}
+
+plan(multisession, workers = parallel::detectCores() - 1)
+
+# ctrl = trainControl(method = "LOOCV", verboseIter = T)
+# 
+# mod_7 = train(formula_7, data, method = 'lm', trControl = ctrl)
+# mod_6 = train(formula_6, data, method = 'lm', trControl = ctrl)
+
+
+loocv_model = function(i, data, model_formula) {
+  train_data = data[-i, ]
+  test_data = data[i, , drop = FALSE]
+
+  modelo = lm(model_formula, data = train_data, weights = fex_c)  # Ajustar modelo
+  prediction = predict(modelo, newdata = test_data)  # Predecir
+  rmse = RMSE(test_data$y_salary_m, exp(prediction))  # Error cuadrático
+
+  return(rmse)
+}
+
+rmse_mod7 = future_map_dbl(1:nrow(data), ~ loocv_model(.x, data, formula_7))
+mean(rmse_mod7) # 745794.5
+
+rmse_mod6 = future_map_dbl(1:nrow(data), ~ loocv_model(.x, data, formula_6))
+mean(rmse_mod6) # 753385
+
+plan(sequential)
+
+```
+
+Leverage statistic
+
+```{r}
+## RUN THE MODEL WITH ALL OBS
+
+full_model <- lm(formula_7, data, weights = fex_c, na.action = na.omit)
+
+X<- model.matrix(full_model, na.action = na.omit)
+y <- model.response(model.frame(full_model))
+
+beta_hat <- full_model$coefficients
+  
+## Calculate the inverse of  (X'X), call it G_inv
+G_inv<- ginv(t(X)%*%X)
+
+## and 1/1-hi
+vec<- 1/(1-hatvalues(full_model))
+  
+N <- nrow(X)  # Number of observations
+LOO <- numeric(N)  # To store the errors
+
+  # Loop over each observation
+for (i in 1:N) {
+  # get the new beta
+  new_beta<- beta_hat  - vec[i] * G_inv %*% as.vector(X[i, ]) * full_model$residuals[i]
+    ## get the new error
+    new_error<- (y[i]- (X[i, ] %*% new_beta))^2
+    LOO[i]<-  new_error
+  }
+  
+  looCV_error <- mean(LOO)
+  sqrt(looCV_error)
 ```
