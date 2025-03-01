@@ -729,7 +729,7 @@ loocv_model = function(i, data, model_formula) {
   train_data = data[-i, ]
   test_data = data[i, , drop = FALSE]
 
-  modelo = lm(model_formula, data = train_data, weights = fex_c)  # Ajustar modelo
+  modelo = suppressWarnings(lm(model_formula, data = train_data, weights = fex_c))   # Ajustar modelo
   prediction = predict(modelo, newdata = test_data)  # Predecir
   rmse = RMSE(test_data$y_salary_m, exp(prediction))  # Error cuadrático
 
