@@ -372,7 +372,7 @@ db2 <-  db2 %>%
 # RE RUNNING THE MODEL
 lM2 <- lm(impa_oi ~ formal + working + maxEducLevel, data = db2)
 summary(lM2)
-db2$impa_oi_P <- predict(lM1, newdata = db2)
+db2$impa_oi_P <- predict(lM2, newdata = db2)
 db2$impa_oi <- ifelse(is.na(db2$impa_oi) | db2$impa_oi == 0, db2$impa_oi_P, db2$impa_oi)
 
 # ----> CHECKING FOR NEGATIVE VALUES
@@ -388,10 +388,6 @@ dev.off()
 rm(db_miss,question, M,Nobs,mode_edu,dummy_maxEducLevel,lM1, Occupied_description,imp_vars,obs_vars,titles,Stats,Obs_vs_Imp, imp_idx,obs_idx,cols, check,lM2,N,WAGES,TOTAL_INCOME,RES,LEV, Differences, db_temp, tables_list, cutt, i, imp_val, new_name, obs_val, p)
 ```
 
-```{r Data exploration, echo=FALSE, message=FALSE}
-
-
-```
 
 ## 3. Age wage profile
 ### 3.1 Running the regression
