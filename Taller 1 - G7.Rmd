@@ -54,11 +54,10 @@ scrape_table <- function(url) {
 }
 tables_list <- future_map(htmls, scrape_table)
 db <- bind_rows(tables_list) %>% select(-...1)
-rm(tables_list, base, htmls)
 
 plan(sequential) 
     db = bind_rows(tables_list) %>% select(-...1)
-    rm(tables_list,web_page,table,base,htmls,url)
+    rm(web_page,table,base,htmls,url,scrape_table)
 ```
 
 </div>
