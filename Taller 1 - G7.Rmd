@@ -612,10 +612,8 @@ set.seed(10101), where 10101 is the seed.)
 ```{r}
 
 library(caret)
-library(rsample)
 library(performance)
 
-# CARET 
 set.seed(1541)
 
 db2 = db2 %>%
@@ -659,7 +657,7 @@ explore non-linearities and complexity.
 ```{r}
 formula_1 = formula(log(y_salary_m) ~ age + I(age^2))
 formula_2 = formula(log(y_salary_m) ~ female)
-formula_3 = formula(log(y_salary_m) ~ female + age + I(age^2) + factor(maxEducLevel) + informal + estrato1)
+formula_3 = formula(log(y_salary_m) ~ female + age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1))
 
 formula_4 = formula(log(y_salary_m) ~ female + age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1) + factor(oficio2))
 
@@ -687,7 +685,7 @@ evaluate_model = function(model) {
   
   prediction = predict(model, newdata = test)
   
-  result = list("RMSE" = RMSE(test$y_salary_m, exp(prediction)),
+  result = list("RMSE" = RMSE(pred = exp(prediction), obs = test$y_salary_m),
                 "Prediction" = exp(prediction),
                 "Resid" = test$y_salary_m-exp(prediction))
   return(result)
@@ -706,7 +704,7 @@ flawed model?
 
 ```{r}
 
-check_model(model[[7]])
+check_model(models[[7]])
 
 qqnorm(result[[7]][["Resid"]])
 
@@ -721,14 +719,20 @@ time, depending on your coding skills, plan accordingly!)
 
 plan(multisession, workers = parallel::detectCores() - 1)
 
+# ctrl = trainControl(method = "LOOCV", verboseIter = T)
+# 
+# mod_7 = train(formula_7, data, method = 'lm', trControl = ctrl)
+# mod_6 = train(formula_6, data, method = 'lm', trControl = ctrl)
+
+
 loocv_model = function(i, data, model_formula) {
-  train_data = data[-i, ]  
-  test_data = data[i, , drop = FALSE]  
-  
-  modelo = lm(model_formula, data = train_data)  # Ajustar modelo
+  train_data = data[-i, ]
+  test_data = data[i, , drop = FALSE]
+
+  modelo = lm(model_formula, data = train_data, weights = fex_c)  # Ajustar modelo
   prediction = predict(modelo, newdata = test_data)  # Predecir
   rmse = RMSE(test_data$y_salary_m, exp(prediction))  # Error cuadrático
-  
+
   return(rmse)
 }
 
@@ -742,6 +746,39 @@ plan(sequential)
 
 ```
 
+Leverage statistic
+
+```{r}
+## RUN THE MODEL WITH ALL OBS
+
+full_model <- lm(formula_7, data, weights = fex_c, na.action = na.omit)
+
+X<- model.matrix(full_model, na.action = na.omit)
+y <- model.response(model.frame(full_model))
+
+beta_hat <- full_model$coefficients
+  
+## Calculate the inverse of  (X'X), call it G_inv
+G_inv<- ginv(t(X)%*%X)
+
+## and 1/1-hi
+vec<- 1/(1-hatvalues(full_model))
+  
+N <- nrow(X)  # Number of observations
+LOO <- numeric(N)  # To store the errors
+
+  # Loop over each observation
+for (i in 1:N) {
+  # get the new beta
+  new_beta<- beta_hat  - vec[i] * G_inv %*% as.vector(X[i, ]) * full_model$residuals[i]
+    ## get the new error
+    new_error<- (y[i]- (X[i, ] %*% new_beta))^2
+    LOO[i]<-  new_error
+  }
+  
+  looCV_error <- mean(LOO)
+  sqrt(looCV_error)
+```
 
 
 
