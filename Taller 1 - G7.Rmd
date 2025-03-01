@@ -611,12 +611,44 @@ set.seed(10101), where 10101 is the seed.)
 
 ```{r}
 
+library(caret)
 library(rsample)
+library(performance)
 
+# CARET 
 set.seed(1541)
-split = initial_split(db2, prop = 0.7, strata = fex_c)
-train_data = training(split)
-test_data = testing(split)
+
+db2 = db2 %>%
+  mutate(oficio2 = case_when(
+    oficio %in% c(1, 2, 9, 12) ~ "Profesionales Altamente Calificados",
+    oficio %in% c(3, 5, 7, 8) ~ "Técnicos y Tecnólogos",
+    oficio %in% c(11, 31, 32, 33, 39) ~ "Administración y Oficinas",
+    oficio %in% c(41, 43, 45) ~ "Ventas y Comerciantes",
+    oficio %in% c(16, 17, 15) ~ "Arte y Cultura",
+    oficio %in% c(54, 57, 58) ~ "Servicios Personales",
+    oficio %in% c(98, 97, 36, 37) ~ "Transporte y Logística",
+    oficio %in% c(61, 62, 71) ~ "Agricultura y Minería",
+    oficio %in% c(81, 83, 85, 95) ~ "Oficios Industriales",
+    oficio %in% c(21, 40) ~ "Directivos y Gerentes",
+    TRUE ~ "Otros"
+  ))
+
+data = db2 |> 
+  drop_na(y_salary_m)
+
+in_train = createDataPartition(y = data$y_salary_m, 
+                               p = 0.7, 
+                               list = FALSE)
+training = data %>% 
+  filter(row_number() %in% in_train)
+
+test = data %>% 
+  filter(!row_number() %in% in_train)
+
+for (var in c("maxEducLevel", "estrato1", "oficio2")) {
+  training[[var]] <- as.factor(training[[var]])
+  test[[var]] <- factor(test[[var]], levels = levels(training[[var]]))
+}
 
 ```
 
@@ -625,12 +657,94 @@ the previous specifications with at least five (5) additional specifications tha
 explore non-linearities and complexity.
 
 ```{r}
-model_1 = formula(log(y_salary_m) ~ age + I(age^2))
-model_2 = formula(log(y_salary_m) ~ female)
-model_3 = formula(log(y_salary_m) ~ female + controls)
-model_4 = formula(log(y_salary_m) ~ female + age + I(age^2) + 
-                    factor(maxEducLevel) + estrato + educ_padres)
-model_5 = formula(log(y_salary_m) ~ I(age^2) + female * age
-                    factor(maxEducLevel) + estrato + educ_padres)
+formula_1 = formula(log(y_salary_m) ~ age + I(age^2))
+formula_2 = formula(log(y_salary_m) ~ female)
+formula_3 = formula(log(y_salary_m) ~ female + age + I(age^2) + factor(maxEducLevel) + informal + estrato1)
+
+formula_4 = formula(log(y_salary_m) ~ female + age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1) + factor(oficio2))
+
+formula_5 = formula(log(y_salary_m) ~ female * factor(maxEducLevel) + age + I(age^2) + informal + factor(estrato1) + factor(oficio2))
+
+formula_6 = formula(log(y_salary_m) ~ female * factor(maxEducLevel) + poly(age, 3) + informal * factor(maxEducLevel) + factor(estrato1) + factor(oficio2))
+
+formula_7 = formula(log(y_salary_m) ~ female * factor(maxEducLevel) + poly(age, 3) + informal * factor(maxEducLevel) + factor(estrato1) * factor(maxEducLevel) + factor(oficio2))
+
+formula_8 = formula(log(y_salary_m) ~ female * factor(maxEducLevel) * factor(estrato1) + poly(age, 3) + informal * factor(maxEducLevel) + factor(oficio2))
+
 ```
+
+Calculate the predictive performance 
+
+
+```{r}
+
+formulas = list(formula_1, formula_2, formula_3, formula_4, 
+                formula_5, formula_6, formula_7, formula_8)
+
+models = map(formulas, ~lm(.x, data = training, weights = fex_c))
+
+evaluate_model = function(model) {
+  
+  prediction = predict(model, newdata = test)
+  
+  result = list("RMSE" = RMSE(test$y_salary_m, exp(prediction)),
+                "Prediction" = exp(prediction),
+                "Resid" = test$y_salary_m-exp(prediction))
+  return(result)
+}
+
+result = map(models, evaluate_model)
+rmse = map_dbl(result, "RMSE")
+
+```
+
+For the specification with the lowest prediction error, explore those observations that seem to ”miss the mark.” To do so, compute the prediction errors
+in the test sample, and examine its distribution. Are there any observations
+in the tails of the prediction error distribution? Are these outliers potential
+people that the DIAN should look into, or are they just the product of a
+flawed model?
+
+```{r}
+
+check_model(model[[7]])
+
+qqnorm(result[[7]][["Resid"]])
+
+```
+LOOCV. For the two models with the lowest predictive error in the previous section, calculate the predictive error using Leave-one-out-cross-validation
+(LOOCV). Compare the results of the test error with those obtained with the
+validation set approach and explore the potential links with the influence statistic. (Note: when attempting this subsection, the calculations can take a long
+time, depending on your coding skills, plan accordingly!)
+
+
+```{r}
+
+plan(multisession, workers = parallel::detectCores() - 1)
+
+loocv_model = function(i, data, model_formula) {
+  train_data = data[-i, ]  
+  test_data = data[i, , drop = FALSE]  
+  
+  modelo = lm(model_formula, data = train_data)  # Ajustar modelo
+  prediction = predict(modelo, newdata = test_data)  # Predecir
+  rmse = RMSE(test_data$y_salary_m, exp(prediction))  # Error cuadrático
+  
+  return(rmse)
+}
+
+rmse_mod7 = future_map_dbl(1:nrow(data), ~ loocv_model(.x, data, formula_7))
+mean(rmse_mod7)
+
+rmse_mod6 = future_map_dbl(1:nrow(data), ~ loocv_model(.x, data, formula_6))
+mean(rmse_mod6)
+
+plan(sequential)
+
+```
+
+
+
+
+
+
 
