@@ -733,10 +733,10 @@ loocv_model = function(i, data, model_formula) {
 }
 
 rmse_mod7 = future_map_dbl(1:nrow(data), ~ loocv_model(.x, data, formula_7))
-mean(rmse_mod7)
+mean(rmse_mod7) # 745794.5
 
 rmse_mod6 = future_map_dbl(1:nrow(data), ~ loocv_model(.x, data, formula_6))
-mean(rmse_mod6)
+mean(rmse_mod6) # 753385
 
 plan(sequential)
 
