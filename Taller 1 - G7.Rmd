@@ -576,7 +576,7 @@ summary(conditional_model)
 controls <- lm(log(impa_oi) ~  age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1), data = db2)
 log_income <- residuals(controls)
 
-gender <- lm(female ~ age + I(age^2) + maxEducLevel + informal + estrato1, data = db2)
+gender <- lm(female ~ age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1), data = db2)
 female<- residuals(gender)
 
 #The effect of female using the residuals
@@ -622,37 +622,41 @@ print(robust_se)
 
 # ------------------------ FWL WITH BOOTSTRAP ----------------------------------------
 fwl_bootstrap <- function(data, indices) {
-  # Resample the data
   boot_data <- data[indices, ]
-  control_model_boot <- lm(log(y_salary_m) ~ age + maxEducLevel + informal + estrato1, data = boot_data)
-  boot_data$residuals_control <- residuals(control_model_boot)
-  fwl_model_boot <- lm(residuals_control ~ female, data = boot_data)
-  return(c(coef(fwl_model_boot)["female"]))
+  
+  controls_boot <- lm(log(impa_oi) ~ age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1), data = boot_data)
+  log_income_boot <- residuals(controls_boot)
+  
+  gender_boot <- lm(female ~ age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1), data = boot_data)
+  female_boot <- residuals(gender_boot)
+  
+  fwl_model_boot <- lm(log_income_boot ~ female_boot)
+  
+  return(coef(fwl_model_boot)["female_boot"])
 }
 
-# Bootstrap with 1000 resamples
-set.seed(100)  # For reproducibility
+set.seed(1010) 
 fwl_boot_results <- boot(data = db2, statistic = fwl_bootstrap, R = 1000)
-
-control_model <- lm(log(y_salary_m) ~ age + maxEducLevel + informal + estrato1, data = db2)
-db2$residuals_control <- residuals(control_model)
-fwl_boot_model <- lm(residuals_control ~ female, data = db2)
-summary(fwl_boot_model)
 
 boot_estimates <- fwl_boot_results$t
 boot_se <- sd(boot_estimates)
 boot_mean <- mean(boot_estimates)
 
-# Calculate robust standard errors to address certain violations of the classic linear regression assumptions. 
-rse_unconditional <- sqrt(diag(vcovHC(model_unconditional, type = "HC1")))
-rse_conditional <- sqrt(diag(vcovHC(conditional_model, type = "HC1")))
-rse_fwl <- sqrt(diag(vcovHC(fwl_model_1, type = "HC1")))
+# Dummy model with the bootstrap results
+bootstrap_model <- lm(log(impa_oi) ~ female, data = db2)  
+bootstrap_model$coefficients <- c("(Intercept)" = 0, "female" = boot_mean)
+bootstrap_model$residuals <- rnorm(nrow(db2))  
+bootstrap_model$fitted.values <- rnorm(nrow(db2))  
+bootstrap_model$rank <- 2  
+bootstrap_model$df.residual <- nrow(db2) - 2  
+bootstrap_model$se <- c("(Intercept)" = 0, "female" = boot_se)
+
 
 #Export to latex
 stargazer(
-  model_unconditional, conditional_model, fwl_model_1, fwl_boot_model,
+  model_unconditional, conditional_model, fwl_model_1, bootstrap_model,
   title = "Comparison of Unconditional and Conditional Gender Wage Gaps",
-  type = "text",
+  type = "latex",
   align = TRUE,
   out = "gender_wage_gap_comparison.html",
   covariate.labels = c("Female"), # Solo mostramos la etiqueta para "Female"
