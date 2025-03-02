@@ -21,7 +21,8 @@ p_load(stringr, # html to text
        reshape2, # Long format for table 
        stargazer, # Latex tables
        gridExtra, # visualizing missing data
-       furrr,
+       furrr, 
+       mosaic, # Bootstrap
        gridExtra, #multiple graphs
        boot,
        car,
@@ -393,51 +394,128 @@ rm(db_miss,question, M,Nobs,mode_edu,dummy_maxEducLevel,lM1, Occupied_descriptio
 ### 3.1 Running the regression
 
 ```{r Age wage Regression, echo=FALSE, warning=FALSE}
-# ------------ SETING THE SEED  ------------------------------------------------
-set.seed(1011)
-
 # ------------ RUNNING THE REGRESSION ------------------------------------------
 model_salary <- lm(log(impa_oi) ~ age + I(age^2), data = db2)
 summary(model_salary)
 
-db2$y_salary_m_st <- scale(db2$y_salary_m)
-db2$age_st <- scale(db2$age)
-model_salary_st <- lm(log(y_salary_m_st) ~ age_st + I(age_st^2), data = db2)
-summary(model_salary_st)
+# ------------ EVALUATING RESIDUALS --------------------------------------------
+png("3.1 Salary vs Age.png", width = 800, height = 600) 
+par(mfrow = c(2, 2))
+plot(model_salary)
+dev.off()
+
+# Is age^2 worth it? Yes it is jeje 
+model_salary2 <- lm(log(y_salary_m) ~ age, data = db2)
+anova(model_salary , model_salary2)
+
+# ------------BOOTSTRAPPING RESULTS --------------------------------------------
+set.seed(100)  # For reproducibility
+boot_model_salary = do(10000)*lm(log(impa_oi) ~ age + I(age^2),data=mosaic::resample(db2))
+
+boot_summary <- boot_model_salary %>%
+  summarise(
+    age = mean(age),
+    age_se = sd(age),
+    age_lower = quantile(age, 0.025),
+    age_upper = quantile(age, 0.975),
+    age2 = mean(I(age^2)),
+    age2_se = sd(I(age^2)),
+    age2_lower = quantile(I(age^2), 0.025),
+    age2_upper = quantile(I(age^2), 0.975)
+  )
+
+model_function <- function(data, indices) {
+  sample_data <- data[indices, ]
+  model <- lm(log(impa_oi) ~ age + I(age^2), data = sample_data)
+  return(coef(model)) 
+}
+
+boot_model_salary2 <- boot(db2, model_function, R = 1000)
+
+# BOOTSTRAP STANDAR ERRORS
+boot_se <- apply(boot_model_salary2$t, 2, sd)
 
 # ------------ EXPORTING TO LATEX R --------------------------------------------
-stargazer(model_salary, type = "latex",
-          title = "Monthly Income Salary Relation with Age",
-          covariate.labels = c("Age", "Age Squared"),
-          dep.var.labels = "Labor Monthly Income*",
-          star.cutoffs = c(0.1, 0.05, 0.01),
-          ci = TRUE, ci.level = 0.95,
-          out = "Regression_P3.tex",
-          notes = c("*Labor monthly income is measured in logarithmic form. It includes income from both formal and informal work, with labor as the main income source, including tips and commissions. The data is sourced from the Gran Encuesta Integrada de Hogares (GEIH), with extreme values imputed.",
-                    "Statistical significance levels: *** p<0.01, ** p<0.05, * p<0.1.")
+stargazer( model_salary, model_salary,
+           type = "latex",se = list(summary(model_salary)$coefficients[, 2], boot_se), 
+           title = "Monthly Income Salary Relation with Age",
+           covariate.labels = c("Intercept", "Age", "Age Squared"),
+           dep.var.labels = "Labor Monthly Income*",
+           column.labels = c("MCO", "Bootstrap"),
+           star.cutoffs = c(0.1, 0.05, 0.01),
+           ci = TRUE, 
+           ci.level = 0.95,
+           out = "Salary and Age.tex",
+           notes = c("Statistical significance levels: *** p<0.01, ** p<0.05, * p<0.1."),
+           add.lines = list(c("Method", "MCO", "Bootstrap")
+  )
 )
 
-stargazer(model_salary_st, type = "latex",
-          title = "Monthly Income Salary Relation with Age (Standardized)",
-          covariate.labels = c("Age**", "Age Squared"),
-          dep.var.labels = "Labor Monthly Income*",
-          star.cutoffs = c(0.1, 0.05, 0.01),
-          ci = TRUE, ci.level = 0.95,
-          out = "Regression_P3_sd.tex",
-          notes = c("*Labor monthly income is measured in logarithmic form and standardized. It includes income from both formal and informal work, with labor as the main income source, including tips and commissions. The data is sourced from the Gran Encuesta Integrada de Hogares (GEIH), with extreme values imputed.",
-                    "**Age was standardized.",
-                    "Statistical significance levels: *** p<0.01, ** p<0.05, * p<0.1.")
-)
-# ------------ PLOTTING AGE-EARNINGS PROFILE -----------------------------------
+# ------------ BOOTSTRAPPING FOR PEAK AGE --------------------------------------
+peak_age_f <- function(data, indices) {
+  sample_data <- data[indices, ]
+  model <- lm(log(impa_oi) ~ age + I(age^2), data = sample_data)
+  coef_model <- coef(model)
+  peak_age <- -coef_model["age"] / (2 * coef_model["I(age^2)"])
+  return(peak_age)
+}
 
-# y_salary_m
-ggplot(db2, aes(x = age, y = log(y_salary_m))) +
-  geom_point(alpha = 0.5) +
-  geom_smooth(method = "lm", formula = y ~ x + I(x^2), color = "red") +
-  ggtitle("Quadratic Regression: log(y_salary_m) ~ Age")
+set.seed(100)
+boot_peak_age <- boot(db2, peak_age_f, R = 1000)
+# Calculate confidence intervals for the peak age
+peak_age_ci <- boot.ci(boot_peak_age, type = "perc")
+print(peak_age_ci)
 
-summary(db2$y_salary_m)
+# ------------ PLOTTING THE AGE-EARNINGS PROFILE --------------------------
+# Define a single function to fit the model and calculate peak age
+peak_age_f <- function(data, indices) {
+  sample_data <- data[indices, ]
+  model <- lm(log(impa_oi) ~ age + I(age^2), data = sample_data)
+  coef_model <- coef(model)
+  peak_age <- -coef_model["age"] / (2 * coef_model["I(age^2)"])
+  return(peak_age)
+}
 
+# Run the bootstrap with 1000 samples
+set.seed(100)
+boot_peak_age <- boot(db2, peak_age_f, R = 1000)
+
+# Calculate confidence intervals for the peak age
+peak_age_ci <- boot.ci(boot_peak_age, type = "perc")
+print(peak_age_ci)
+
+# Calculate the original peak age using the full dataset
+original_peak_age <- peak_age_f(db2, 1:nrow(db2))
+
+cat("Original Peak Age:", round(original_peak_age, 2), "\n")
+cat("95% Bootstrap CI for Peak Age:", 
+    round(peak_age_ci$percent[4], 2), "to", 
+    round(peak_age_ci$percent[5], 2), "\n")
+
+# Fit the quadratic model
+model_salary <- lm(log(impa_oi) ~ age + I(age^2), data = db2)
+
+# Create a data frame for prediction
+age_values <- seq(min(db2$age), max(db2$age), by = 1)
+predicted_earnings <- predict(model_salary, newdata = data.frame(age = age_values))
+
+# Create a data frame for ggplot
+plot_data <- data.frame(age = age_values, log_salary = predicted_earnings)
+
+# Plot the age-earnings profile with the peak age and its confidence interval
+ggplot(plot_data, aes(x = age, y = log_salary)) +
+  geom_line(color = "blue", size = 1) +
+  geom_vline(xintercept = original_peak_age, color = "red", linetype = "dashed") +
+  geom_vline(xintercept = peak_age_ci$percent[4], color = "green", linetype = "dotted") +
+  geom_vline(xintercept = peak_age_ci$percent[5], color = "green", linetype = "dotted") +
+  labs(title = "Estimated Age-Earnings Profile",
+       x = "Age",
+       y = "Log(Monthly Income Salary)",
+       subtitle = paste("Peak Age:", round(original_peak_age, 2), 
+                        "95% CI [", 
+                        round(peak_age_ci$percent[4], 2), ",", 
+                        round(peak_age_ci$percent[5], 2), "]")) +
+  theme_minimal()
 ```
 
 ### 3.1 Evaluating residuals
@@ -460,54 +538,7 @@ Análisis preliminar de las regresiones:
 
 
 ```{r Evaluating residuals, echo=FALSE}
-png("Reg1_P3.png", width = 800, height = 600) 
-par(mfrow = c(2, 2))
-plot(model_salary)
-dev.off()
 
-# Is age^2 worth it? Yes it is jeje 
-model_salary2 <- lm(log(y_salary_m) ~ age, data = db2)
-anova(model_salary , model_salary2)
-
-## ------------------------ Further analysis on Levarage-----------------------
-
-# leverage <- data.frame(row_num = 1:length(hatvalues(model_salary)))
-# leverage <- leverage %>% mutate(leverage = hatvalues(model_salary))
-# 
-# res <- data.frame(row_num = 1:length(hatvalues(model_salary)))
-# res <- res %>% mutate(residuals= model_salary$residuals)
-# 
-# ## PENDIENTE PORQUE NO TIENEN EL MISMO TAMAÑO POR LOS NA'S 
-# N <- nrow(db2)
-# db2$id<- seq(1 , N)
-# db2$leverage <- hatvalues(model_salary) # Add leverage to db2
-# a <- ggplot(db2, aes(y = leverage, x = id, color = y_salary_m, shape = as.factor(p6240))) +
-#   geom_point() +
-#   theme_bw() +
-#   labs(x = "Observations", y = "Leverage", title = "")
-# 
-# residuals <- resid(model_salary) # Get the residuals
-# b <- ggplot(db2, aes(y = leverage, x = residuals)) +
-#   geom_point() +
-#   theme_bw() +
-#   labs(x = "Residuals", y = "Leverage", title = "")
-# 
-# grid.arrange(a, b, ncol = 2)
-
-# ------------------------ DEALING WITH OUTLIERS--------------------------------
-# p <- mean(db_int$leverage)
-# # CUT OBSERVATIONS 3 STD AWAY from 
-# cutt <- 3*p
-# cutt
-# db_int2 <-  db_int %>% 
-#   dplyr:: filter(leverage<= cutt)
-# # re run the model
-# linear_model2<- lm(totalHoursWorked ~ ofic_ingLab + nmenores  +  nmenores*gender + H_Head + age + gender, data=db_int2  )
-# 
-# 
-# stargazer(linear_model, linear_model2, type="text",
-#           covariate.labels=c("Mean Ocu Income","N under 18","Male",
-#                              "Hausehold Head","Age", "N under 18 x Male" ))
 ```
 
 ## 4. The gender earnings GAP
