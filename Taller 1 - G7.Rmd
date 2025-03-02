@@ -21,7 +21,8 @@ p_load(stringr, # html to text
        reshape2, # Long format for table 
        stargazer, # Latex tables
        gridExtra, # visualizing missing data
-       furrr,
+       furrr, 
+       mosaic, # Bootstrap
        gridExtra, #multiple graphs
        boot,
        car,
@@ -54,11 +55,10 @@ scrape_table <- function(url) {
 }
 tables_list <- future_map(htmls, scrape_table)
 db <- bind_rows(tables_list) %>% select(-...1)
-rm(tables_list, base, htmls)
 
 plan(sequential) 
     db = bind_rows(tables_list) %>% select(-...1)
-    rm(tables_list,web_page,table,base,htmls,url)
+    rm(web_page,table,base,htmls,url,scrape_table)
 ```
 
 </div>
@@ -69,7 +69,7 @@ plan(sequential)
 ```{r Cleaning of data set, echo=FALSE}
 #--------------------FILTERING BY +18, EMPLOYED IN BOGOTÁ-----------------------
 
-db2 <- db %>% filter(age > 18, ocu == 1, dominio == "BOGOTA")
+db2 <- db %>% filter(age > 18, ocu == 1, dominio == "BOGOTA" )
 
 #------------ FRAMING MISSING VALUES -------------------------------------------
 Nobs <- nrow(db2) 
@@ -192,6 +192,18 @@ corrplot(
   tl.col = "black", tl.srt = 90,   tl.cex = 0.8, cl.cex = 0.9,                
   addCoef.col = "black", number.cex = 0.8,mar = c(2,2,2,2))
 
+# ----> CHOOSING SALARY VARIABLES (WORKING AS FIRST ACTIVITY)
+db_temp <-  db2 %>% filter(p6240 == 1) %>%  select(y_salary_m, impa_oi)
+summary(db_temp)
+sapply(db_temp, function(col) sum(col == 0, na.rm = TRUE)) # Number of 0 values
+sapply(db_temp, function(col) {
+  if (is.numeric(col)) { cut(col, breaks = quantile(col, probs = c(0, 0.25, 0.5, 0.75, 1), na.rm = TRUE), include.lowest = TRUE) %>%
+      table()
+  } else {
+    NA # OBSERVATIONS PER QUANTILE
+  }
+})
+
 # ----> CHOOSING TOTAL INCOME
 TOTAL_INCOME <- data.frame(
   Metric = c("Mean", "NA Count", "Zero Count", "Q1", "Median", "Q3"),
@@ -292,18 +304,20 @@ db2 <- db2 %>% mutate(Sexo = case_when(
                                 sex == 1 ~ "Men" ))
 
 # ----> SALARY INCOME: SPOTTING % OF NA's to FILL 
-WAGES <- db2 %>% 
-  group_by(Occupation, Sexo) %>%  # Now also group by sex (gender)
+WAGES <- db2 %>%
+  group_by(Occupation, Sexo) %>%
   summarise(
     mean_age = mean(age, na.rm = TRUE),
-    mean_y_total_m = mean(y_salary_m, na.rm = TRUE),
-    na_or_zero_percentage_total = sum(is.na(y_salary_m) | y_salary_m <= 10000) / n() * 100
+    Q1_wages = mean(impa_oi[impa_oi <= quantile(impa_oi, 0.25, na.rm = TRUE)], na.rm = TRUE),
+    mean_wages = mean(impa_oi, na.rm = TRUE),
+    Q3_wages = mean(impa_oi[impa_oi >= quantile(impa_oi, 0.75, na.rm = TRUE)], na.rm = TRUE),
+    na_or_zero_percentage_total = sum(is.na(impa_oi) | impa_oi <= 10000) / n() * 100
   ) %>%
-  ungroup()
-WAGES <- WAGES %>% mutate(across(where(is.numeric), ~ round(.x, 0)))
+  ungroup() %>%
+  mutate(across(where(is.numeric), ~ round(.x, 0)))
 
-stargazer(WAGES, type = "latex", summary = FALSE, title = "Formal Workers Summary",
-          label = "tab:formal_workers", out = "2.1 WAGES.tex",
+stargazer(WAGES, type = "latex", summary = FALSE, title = "Wage description by Occupation and Sex",
+          label = "tab:WAGES", out = "2.1 WAGES.tex",
           digits = 1)
 
 # ------------------------- FILLING NA's VALUES ---------------------------------
@@ -313,11 +327,14 @@ db2 <- db2  %>%
   mutate(maxEducLevel = ifelse(is.na(maxEducLevel) == TRUE, mode_edu , maxEducLevel))
 
 # ----> FILLING SALARY VARIABLE. 
+db2 <- db2 %>% mutate(working = ifelse(p6240 == 1, 1, 0))
+
 db2$maxEducLevel<- factor(db2$maxEducLevel)
 dummy_maxEducLevel <- as.data.frame(model.matrix(~ maxEducLevel - 1, data = db2))
 db2 <- cbind(db2, dummy_maxEducLevel)
-lM1 <- lm(y_salary_m ~ impa_oi + formal + maxEducLevel3 + maxEducLevel4 
-          + maxEducLevel5 + maxEducLevel6 + maxEducLevel7 , data = db2)
+
+lM1 <- lm(impa_oi ~ formal + working + maxEducLevel, data = db2)
+summary(lM1)
 
 # ----> EVALUATING LEVERAGE
 db2$leverage <- NA
@@ -329,14 +346,14 @@ db2$residuals[as.numeric(names(residuals(lM1)))] <- residuals(lM1)
 N <- nrow(db2)
 db2$id<- seq(1 , N)
 
-LEV <- ggplot(db2 , aes(y = leverage , x = id , color= Occupation, shape= as.factor(sex) )) +
+LEV <- ggplot(db2 , aes(y = leverage , x = id , color= Occupation )) +
   geom_point() + 
   theme_bw() + 
   labs(x = "Observations",  
        y = "Leverage",
        title = "")
 
-RES <- ggplot(db2 , aes(y = leverage , x = residuals  )) +
+RES <- ggplot(db2 , aes(y = leverage , x = residuals, color= Occupation )) +
   geom_point() + # add points
   theme_bw() + #black and white theme
   labs(x = "Residuals",  
@@ -354,14 +371,14 @@ db2 <-  db2 %>%
   dplyr:: filter(leverage<= cutt)
 
 # RE RUNNING THE MODEL
-lM2 <- lm(y_salary_m ~ impa_oi + formal + maxEducLevel3 + maxEducLevel4 + maxEducLevel5 + maxEducLevel6 + maxEducLevel7 , data = db2)
+lM2 <- lm(impa_oi ~ formal + working + maxEducLevel, data = db2)
 summary(lM2)
-db2$y_salary_m_P <- predict(lM1, newdata = db2)
-db2$y_salary_m <- ifelse(is.na(db2$y_salary_m), db2$y_salary_m_P,db2$y_salary_m)
+db2$impa_oi_P <- predict(lM2, newdata = db2)
+db2$impa_oi <- ifelse(is.na(db2$impa_oi) | db2$impa_oi == 0, db2$impa_oi_P, db2$impa_oi)
 
 # ----> CHECKING FOR NEGATIVE VALUES
-non_positive_y_salary_m <- sum(db2$y_salary_m <= 0)
-cat("Number of non-positive values in y_salary_m:", non_positive_y_salary_m, "\n")
+non_positive_impa_oi <- sum(db2$impa_oi <= 0)
+cat("Number of non-positive values in y_salary_m:", non_positive_impa_oi, "\n")
 
 # ----> CHECKING RESIDUALS
 png("2.3 Residuals removing HIGH LEVERAGE.png", width = 800, height = 600) 
@@ -369,81 +386,20 @@ par(mfrow = c(2, 2))
 plot(lM2)
 dev.off()
 
-rm(db_miss,question, M,Nobs,mode_edu,dummy_maxEducLevel,Occupied_description,imp_vars,obs_vars,titles,Stats,Obs_vs_Imp, imp_idx,obs_idx,cols, check,lM2,lM1,N,WAGES,TOTAL_INCOME,RES,LEV)
+rm(db_miss,question, M,Nobs,mode_edu,dummy_maxEducLevel,lM1, Occupied_description,imp_vars,obs_vars,titles,Stats,Obs_vs_Imp, imp_idx,obs_idx,cols, check,lM2,N,WAGES,TOTAL_INCOME,RES,LEV, Differences, db_temp, tables_list, cutt, i, imp_val, new_name, obs_val, p)
 ```
+
 
 ## 3. Age wage profile
 ### 3.1 Running the regression
 
 ```{r Age wage Regression, echo=FALSE, warning=FALSE}
-# ------------ SETING THE SEED  ------------------------------------------------
-set.seed(1011)
-
 # ------------ RUNNING THE REGRESSION ------------------------------------------
-model_salary <- lm(log(y_salary_m) ~ age + I(age^2), data = db2)
+model_salary <- lm(log(impa_oi) ~ age + I(age^2), data = db2)
 summary(model_salary)
 
-db2$y_salary_m_st <- scale(db2$y_salary_m)
-db2$age_st <- scale(db2$age)
-model_salary_st <- lm(log(y_salary_m_st) ~ age_st + I(age_st^2), data = db2)
-summary(model_salary_st)
-
-# ------------ EXPORTING TO LATEX R --------------------------------------------
-stargazer(model_salary, type = "latex",
-          title = "Monthly Income Salary Relation with Age",
-          covariate.labels = c("Age", "Age Squared"),
-          dep.var.labels = "Labor Monthly Income*",
-          star.cutoffs = c(0.1, 0.05, 0.01),
-          ci = TRUE, ci.level = 0.95,
-          out = "Regression_P3.tex",
-          notes = c("*Labor monthly income is measured in logarithmic form. It includes income from both formal and informal work, with labor as the main income source, including tips and commissions. The data is sourced from the Gran Encuesta Integrada de Hogares (GEIH), with extreme values imputed.",
-                    "Statistical significance levels: *** p<0.01, ** p<0.05, * p<0.1.")
-)
-
-stargazer(model_salary_st, type = "latex",
-          title = "Monthly Income Salary Relation with Age (Standardized)",
-          covariate.labels = c("Age**", "Age Squared"),
-          dep.var.labels = "Labor Monthly Income*",
-          star.cutoffs = c(0.1, 0.05, 0.01),
-          ci = TRUE, ci.level = 0.95,
-          out = "Regression_P3_sd.tex",
-          notes = c("*Labor monthly income is measured in logarithmic form and standardized. It includes income from both formal and informal work, with labor as the main income source, including tips and commissions. The data is sourced from the Gran Encuesta Integrada de Hogares (GEIH), with extreme values imputed.",
-                    "**Age was standardized.",
-                    "Statistical significance levels: *** p<0.01, ** p<0.05, * p<0.1.")
-)
-# ------------ PLOTTING AGE-EARNINGS PROFILE -----------------------------------
-
-# y_salary_m
-ggplot(db2, aes(x = age, y = log(y_salary_m))) +
-  geom_point(alpha = 0.5) +
-  geom_smooth(method = "lm", formula = y ~ x + I(x^2), color = "red") +
-  ggtitle("Quadratic Regression: log(y_salary_m) ~ Age")
-
-summary(db2$y_salary_m)
-
-```
-
-### 3.1 Evaluating residuals
-
-Análisis preliminar de las regresiones:
-
--   Residuals vs Fitted: Podemos ver que en general los residuales se
-    concentran etre -4 y 4. Que no parece existir una tendencia muy
-    literal, aunque si la existiera sería negativa. En general los
-    valores se concentran entre 13.5 y 14.0 es decir que el valor
-    predicho de log(w) suele estar entre este rango para casi todas las
-    observaciones, aunque con notables outliers para algunas
-    observaciones. ¿Eso qué quiere decir? Que un cambio de 1 año de experiencia y su variación (cómo explico la experiencia al cuadrado?) genera un crecimiento (creo aproximado de 442.413 COP (COP?) 
-
--   Q-Q Plot: Claramente hay heterocedasticidad, presencia de colas
-    psadas que nos indicanque existe una distribución asimetrica de los errores en 
-    los cuantiles más extremos.
--   Scale-Location: Nuevamente sugiere que la varianza no es constante
--   Residuals vs Leverage: Nos muestra que existen observaciones con gran influencia. Tal cómo la 9452, 943, 9453 que pueden estar moviendo esa pendiente a niveles distorsionados.
-
-
-```{r Evaluating residuals, echo=FALSE}
-png("Reg1_P3.png", width = 800, height = 600) 
+# ------------ EVALUATING RESIDUALS --------------------------------------------
+png("3.1 Salary vs Age.png", width = 800, height = 600) 
 par(mfrow = c(2, 2))
 plot(model_salary)
 dev.off()
@@ -452,45 +408,114 @@ dev.off()
 model_salary2 <- lm(log(y_salary_m) ~ age, data = db2)
 anova(model_salary , model_salary2)
 
-## ------------------------ Further analysis on Levarage-----------------------
+# ------------BOOTSTRAPPING RESULTS --------------------------------------------
+set.seed(100)  # For reproducibility
+boot_model_salary = do(10000)*lm(log(impa_oi) ~ age + I(age^2),data=mosaic::resample(db2))
 
-# leverage <- data.frame(row_num = 1:length(hatvalues(model_salary)))
-# leverage <- leverage %>% mutate(leverage = hatvalues(model_salary))
-# 
-# res <- data.frame(row_num = 1:length(hatvalues(model_salary)))
-# res <- res %>% mutate(residuals= model_salary$residuals)
-# 
-# ## PENDIENTE PORQUE NO TIENEN EL MISMO TAMAÑO POR LOS NA'S 
-# N <- nrow(db2)
-# db2$id<- seq(1 , N)
-# db2$leverage <- hatvalues(model_salary) # Add leverage to db2
-# a <- ggplot(db2, aes(y = leverage, x = id, color = y_salary_m, shape = as.factor(p6240))) +
-#   geom_point() +
-#   theme_bw() +
-#   labs(x = "Observations", y = "Leverage", title = "")
-# 
-# residuals <- resid(model_salary) # Get the residuals
-# b <- ggplot(db2, aes(y = leverage, x = residuals)) +
-#   geom_point() +
-#   theme_bw() +
-#   labs(x = "Residuals", y = "Leverage", title = "")
-# 
-# grid.arrange(a, b, ncol = 2)
+boot_summary <- boot_model_salary %>%
+  summarise(
+    age = mean(age),
+    age_se = sd(age),
+    age_lower = quantile(age, 0.025),
+    age_upper = quantile(age, 0.975),
+    age2 = mean(I(age^2)),
+    age2_se = sd(I(age^2)),
+    age2_lower = quantile(I(age^2), 0.025),
+    age2_upper = quantile(I(age^2), 0.975)
+  )
 
-# ------------------------ DEALING WITH OUTLIERS--------------------------------
-# p <- mean(db_int$leverage)
-# # CUT OBSERVATIONS 3 STD AWAY from 
-# cutt <- 3*p
-# cutt
-# db_int2 <-  db_int %>% 
-#   dplyr:: filter(leverage<= cutt)
-# # re run the model
-# linear_model2<- lm(totalHoursWorked ~ ofic_ingLab + nmenores  +  nmenores*gender + H_Head + age + gender, data=db_int2  )
-# 
-# 
-# stargazer(linear_model, linear_model2, type="text",
-#           covariate.labels=c("Mean Ocu Income","N under 18","Male",
-#                              "Hausehold Head","Age", "N under 18 x Male" ))
+model_function <- function(data, indices) {
+  sample_data <- data[indices, ]
+  model <- lm(log(impa_oi) ~ age + I(age^2), data = sample_data)
+  return(coef(model)) 
+}
+
+boot_model_salary2 <- boot(db2, model_function, R = 1000)
+
+# BOOTSTRAP STANDAR ERRORS
+boot_se <- apply(boot_model_salary2$t, 2, sd)
+
+# ------------ EXPORTING TO LATEX R --------------------------------------------
+stargazer( model_salary, model_salary,
+           type = "latex",se = list(summary(model_salary)$coefficients[, 2], boot_se), 
+           title = "Monthly Income Salary Relation with Age",
+           covariate.labels = c("Intercept", "Age", "Age Squared"),
+           dep.var.labels = "Labor Monthly Income*",
+           column.labels = c("MCO", "Bootstrap"),
+           star.cutoffs = c(0.1, 0.05, 0.01),
+           ci = TRUE, 
+           ci.level = 0.95,
+           out = "Salary and Age.tex",
+           notes = c("Statistical significance levels: *** p<0.01, ** p<0.05, * p<0.1."),
+           add.lines = list(c("Method", "MCO", "Bootstrap")
+  )
+)
+
+# ------------ BOOTSTRAPPING FOR PEAK AGE --------------------------------------
+peak_age_f <- function(data, indices) {
+  sample_data <- data[indices, ]
+  model <- lm(log(impa_oi) ~ age + I(age^2), data = sample_data)
+  coef_model <- coef(model)
+  peak_age <- -coef_model["age"] / (2 * coef_model["I(age^2)"])
+  return(peak_age)
+}
+
+set.seed(100)
+boot_peak_age <- boot(db2, peak_age_f, R = 1000)
+# Calculate confidence intervals for the peak age
+peak_age_ci <- boot.ci(boot_peak_age, type = "perc")
+print(peak_age_ci)
+
+# ------------ PLOTTING THE AGE-EARNINGS PROFILE --------------------------
+# Define a single function to fit the model and calculate peak age
+peak_age_f <- function(data, indices) {
+  sample_data <- data[indices, ]
+  model <- lm(log(impa_oi) ~ age + I(age^2), data = sample_data)
+  coef_model <- coef(model)
+  peak_age <- -coef_model["age"] / (2 * coef_model["I(age^2)"])
+  return(peak_age)
+}
+
+# Run the bootstrap with 1000 samples
+set.seed(100)
+boot_peak_age <- boot(db2, peak_age_f, R = 1000)
+
+# Calculate confidence intervals for the peak age
+peak_age_ci <- boot.ci(boot_peak_age, type = "perc")
+print(peak_age_ci)
+
+# Calculate the original peak age using the full dataset
+original_peak_age <- peak_age_f(db2, 1:nrow(db2))
+
+cat("Original Peak Age:", round(original_peak_age, 2), "\n")
+cat("95% Bootstrap CI for Peak Age:", 
+    round(peak_age_ci$percent[4], 2), "to", 
+    round(peak_age_ci$percent[5], 2), "\n")
+
+# Fit the quadratic model
+model_salary <- lm(log(impa_oi) ~ age + I(age^2), data = db2)
+
+# Create a data frame for prediction
+age_values <- seq(min(db2$age), max(db2$age), by = 1)
+predicted_earnings <- predict(model_salary, newdata = data.frame(age = age_values))
+
+# Create a data frame for ggplot
+plot_data <- data.frame(age = age_values, log_salary = predicted_earnings)
+
+# Plot the age-earnings profile with the peak age and its confidence interval
+ggplot(plot_data, aes(x = age, y = log_salary)) +
+  geom_line(color = "blue", size = 1) +
+  geom_vline(xintercept = original_peak_age, color = "red", linetype = "dashed") +
+  geom_vline(xintercept = peak_age_ci$percent[4], color = "green", linetype = "dotted") +
+  geom_vline(xintercept = peak_age_ci$percent[5], color = "green", linetype = "dotted") +
+  labs(title = "Estimated Age-Earnings Profile",
+       x = "Age",
+       y = "Log(Monthly Income Salary)",
+       subtitle = paste("Peak Age:", round(original_peak_age, 2), 
+                        "95% CI [", 
+                        round(peak_age_ci$percent[4], 2), ",", 
+                        round(peak_age_ci$percent[5], 2), "]")) +
+  theme_minimal()
 ```
 
 ## 4. The gender earnings GAP
