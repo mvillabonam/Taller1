@@ -518,29 +518,6 @@ ggplot(plot_data, aes(x = age, y = log_salary)) +
   theme_minimal()
 ```
 
-### 3.1 Evaluating residuals
-
-Análisis preliminar de las regresiones:
-
--   Residuals vs Fitted: Podemos ver que en general los residuales se
-    concentran etre -4 y 4. Que no parece existir una tendencia muy
-    literal, aunque si la existiera sería negativa. En general los
-    valores se concentran entre 13.5 y 14.0 es decir que el valor
-    predicho de log(w) suele estar entre este rango para casi todas las
-    observaciones, aunque con notables outliers para algunas
-    observaciones. ¿Eso qué quiere decir? Que un cambio de 1 año de experiencia y su variación (cómo explico la experiencia al cuadrado?) genera un crecimiento (creo aproximado de 442.413 COP (COP?) 
-
--   Q-Q Plot: Claramente hay heterocedasticidad, presencia de colas
-    psadas que nos indicanque existe una distribución asimetrica de los errores en 
-    los cuantiles más extremos.
--   Scale-Location: Nuevamente sugiere que la varianza no es constante
--   Residuals vs Leverage: Nos muestra que existen observaciones con gran influencia. Tal cómo la 9452, 943, 9453 que pueden estar moviendo esa pendiente a niveles distorsionados.
-
-
-```{r Evaluating residuals, echo=FALSE}
-
-```
-
 ## 4. The gender earnings GAP
 ```{r Unconditional Gender Wage Gap}
 

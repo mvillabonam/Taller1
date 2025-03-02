@@ -1,0 +1,108 @@
+"Variable","Description","n_missing","p_missing"
+"cclasnr5","Estado de imdi 1:faltante 0: observado",16397,100
+"imdi","Ingreso por trabajo de desocupados e inactivos antes de imputación",16397,100
+"imdies","Ingreso por trabajo de desocupados e inactivos imputado (sólo para faltantes o e",16397,100
+"ina","Inactivo 1: sí",16397,100
+"p550","¿cuál fue la ganancia neta del negocio o de la cosecha durante los últimos doce",16397,100
+"p7310","¿...... ha buscado trabajo por primera vez o había trabajado antes por lo menos",16397,100
+"p7350","En este último trabajo era: … (Desocupados)",16397,100
+"p7422","¿Recibió o ganó el mes pasado ingresos por concepto de trabajo?. (Desocupados)",16397,100
+"p7422s1","¿Cuánto? $_________________",16397,100
+"p7472","¿recibió o ganó el mes pasado ingresos por concepto de trabajo?. (desocupados)",16397,100
+"p7472s1","¿cuánto? $_________________",16397,100
+"iof3ies","Ingreso por ayudas de instituciones, imputado (sólo para faltantes o extremos)",16389,99.95
+"y_accidentes_m","Ingreso accidentes monetario ultimos 12 meses",16362,99.79
+"p6585s4a2","¿incluyó este valor en los ingresos del mes pasado ($ ____) que me declaró ant",16359,99.77
+"cclasnr3","Estado de isa 1:faltante 0: observado",16331,99.6
+"isaes","Ingreso monetario de la segunda actividad imputado (sólo para faltantes o extrem",16331,99.6
+"cclasnr7","Estado de iof2 1:faltante 0: observado",16324,99.55
+"iof2es","Ingreso por jubilaciones y pensiones imputado (sólo para faltantes o extremos)",16323,99.55
+"cclasnr11","Estado de iof6 1:faltante 0: observado",16307,99.45
+"iof6es","Ingreso por arriendos imputado (sólo para faltantes o extremos)",16307,99.45
+"p6545s2","¿incluyó este valor en los ingresos del mes pasado ($ ____) que me declaró ant",16302,99.42
+"y_primas_m","Ingreso primas monetario en el mes",16302,99.42
+"y_vivienda_m","labor income housing - monthly nominal - principal occ.",16297,99.39
+"iof3hes","Ingreso por ayudas de hogares, imputado (sólo para faltantes o extremos)",16295,99.38
+"cclasnr8","Estado de iof3 1:faltante 0: observado",16290,99.35
+"y_otros_m","labor income especie (others) - monthly nominal - principal occ.",16266,99.2
+"cclasnr6","Estado de iof1 1:faltante 0: observado",16165,98.59
+"iof1es","Ingreso por intereses y dividendos imputado (sólo para faltantes o extremos)",16165,98.59
+"cclasnr4","Estado de ie 1:faltante 0: observado",16127,98.35
+"iees","Ingreso en especie imputado (sólo para faltantes o extremos)",16125,98.34
+"p6580s2","¿incluyó este valor en los ingresos del mes pasado ($ ____) que me declaró ant",16031,97.77
+"y_viaticos_m","Ingreso viaticos monetario ultimos 12 meses",16000,97.58
+"p6585s1a2","¿incluyó este valor en los ingresos del mes pasado ($ ____) que me declaró ant",15992,97.53
+"y_salarySec_m","salary nominal mensual occ. secundario",15944,97.24
+"p7050","En ese segundo trabajo…..es: (ocupación segunda actividad)",15794,96.32
+"p6510s2","¿incluyó este valor en los ingresos del mes pasado?",15507,94.57
+"y_horasExtras_m","labor income extra hours - monthly nominal - principal occ.",15507,94.57
+"y_especie_m","labor income especie - monthly nominal - principal occ.",15114,92.18
+"cclasnr2","Estado de impa 1:faltante 0: observado",14956,91.21
+"impaes","Ingreso monetario de la primera actividad imputado (sólo para faltantes, extremo",14935,91.08
+"p7500s1","¿El mes pasado, recibió pagos por: a. arriendos de casas, apartamentos, fincas,",14853,90.58
+"p7500s2","¿El mes pasado recibió pagos por b. pensiones o jubilaciones por vejez,invalidez",14853,90.58
+"p7500s3","¿El mes pasado recibió pagos por c. pensión alimenticia por paternidad, divorcio",14853,90.58
+"p7110","Durante las últimas 4 semanas, ¿ ...... hizo diligencias para trabajar más horas",14813,90.34
+"p7120","Si la semana pasada le hubiera resultado la posibilidad de trabajar más horas",14813,90.34
+"ingtotes","Ingreso total imputado",14316,87.31
+"p6585s3a2","¿incluyó este valor en los ingresos del mes pasado ($ ____) que me declaró ant",14100,85.99
+"y_subFamiliar_m","Ingreso subsidio familiar monetario en el mes",14100,85.99
+"p7140s1","¿Por que motivos ....... desea cambiar de trabajo o empleo:",13019,79.4
+"p7140s2","¿Por que motivos ....... desea cambiar de trabajo o empleo:",13019,79.4
+"p7150","Durante las ÚLTIMAS 4 SEMANAS, ¿...... hizo diligencias para cambiar de traba",13019,79.4
+"p7160","Si le resultara un nuevo trabajo o empleo a...¿podría empezar a desempeñarlo an",13019,79.4
+"p6750","¿cuál fue la ganancia neta o los honorarios netos de ... En esa actividad, negoc",11550,70.44
+"p6585s2a2","¿incluyó este valor en los ingresos del mes pasado ($ ____) que me declaró ant",10965,66.87
+"p6760","¿ a cuántos meses corresponde lo que recibió?",10683,65.15
+"p7510s1","Durante los últimos 12 meses, ¿recibió a. dinero de otros hogares o personas res",10335,63.03
+"p7510s2","Durante los últimos 12 meses, ¿recibió b. dinero de otros hogares o personas res",10335,63.03
+"p7510s3","Durante los últimos 12 meses, ¿recibió c. ayudas en dinero de instituciones del",10335,63.03
+"p7510s5","Durante los últimos 12 meses, ¿recibió d. dinero por intereses de prestamos o CD",10335,63.03
+"p7510s6","Durante los últimos 12 meses, ¿recibió e. dinero por concepto de cesantías y/o i",10335,63.03
+"p7510s7","Durante los últimos 12 meses, ¿recibió f. dinero de otras fuentes diferentes a l",10335,63.03
+"y_ingLab_m","labor income salaried - nominal monthly - all occ. (includes tips and commission",6612,40.32
+"y_ingLab_m_ha","labor income salaried - nomial hourly - all occ. (includes tips and commissions",6612,40.32
+"y_salary_m","salary - nominal monthly - principal occ. (includes tips and commissions)",6612,40.32
+"y_salary_m_hu","salary - real hourly (usual) - principal occ. (includes tips and commissions)",6612,40.32
+"p6585s2a1","¿cuánto recibió por subsidio de transporte?",6009,36.65
+"p6585s3a1","¿cuánto recibió por subsidio familiar?",5972,36.42
+"p6545s1","¿cuánto recibió por primas?",5968,36.4
+"p6510s1","¿cuánto recibió por horas extras?",5966,36.38
+"p6585s1a1","¿cuánto recibió por subsidio de alimentación?",5962,36.36
+"p6580s1","¿cuánto recibió por bonificaciones?",5960,36.35
+"ie","Ingreso en especie antes de imputación",5956,36.32
+"p6500","Antes de descuentos ¿cuánto ganó .... el mes pasado en este empleo?",5956,36.32
+"p6510","¿el mes pasado recibio ingresos por concepto de horas extras?",5956,36.32
+"p6545","El mes pasado recibió a. Primas (técnica, de antigüedad, clima,orden publico, ot",5956,36.32
+"p6580","¿el mes pasado recibió b. Bonificaciones?",5956,36.32
+"p6585s1","¿el mes pasado recibió a. Auxilio o subsidio de alimentación?",5956,36.32
+"p6585s2","¿el mes pasado recibió b. Auxilio subsidio de transporte?",5956,36.32
+"p6585s3","¿el mes pasado recibió c. Subsidio familiar?",5956,36.32
+"p6585s4","¿el mes pasado recibio d. Subsidio educativo?",5956,36.32
+"p6585s4a1","¿cuánto recibio por subsidio educativo?",5956,36.32
+"p6590","¿además del salario en dinero,¿el mes pasado recibió alimentos como parte de pag",5956,36.32
+"p6590s1","¿en cuánto estima lo que recibió? $____________",5956,36.32
+"p6600","¿además del salario en dinero,¿el mes pasado recibió vivienda como parte de pago",5956,36.32
+"p6600s1","¿en cuánto estima lo que recibió? $_______________",5956,36.32
+"p6610","¿normalmente... Utiliza transporte de la empresa para desplazarse a su trabajo",5956,36.32
+"p6610s1","¿en cuánto estima lo que recibió?$_______________",5956,36.32
+"p6620","Además del salario en dinero, ¿el mes pasado... Recibió otros ingresos en especi",5956,36.32
+"p6620s1","¿en cuánto estima lo que recibió? $_______________",5956,36.32
+"p6630s1","En los últimos 12 meses recibió … a. Prima de servicios",5956,36.32
+"p6630s1a1","¿cuánto recibio? $____________",5956,36.32
+"p6630s2","En los últimos 12 meses recibió ... B. Prima de navidad",5956,36.32
+"p6630s2a1","¿cuánto recibio? $____________",5956,36.32
+"p6630s3","En los últimos 12 meses recibió … c. Prima de vacaciones",5956,36.32
+"p6630s3a1","¿cuánto recibió? $____________",5956,36.32
+"p6630s4","En los últimos 12 meses recibio ... D. Viáticos permanentes",5956,36.32
+"p6630s4a1","¿cuánto recibió? $____________",5956,36.32
+"p6630s6","En los últimos 12 meses recibio … e. Bonificaciones anuales",5956,36.32
+"p6630s6a1","¿cuánto recibió? $____________",5956,36.32
+"y_total_m","income salaried + independents total - nominal monthly",1765,10.76
+"y_total_m_ha","income salaried + independents total - nominal hourly",1765,10.76
+"regSalud","RECODE of p6100 (¿A cual de los siguientes regímenes de seguridad social en salu",1394,8.5
+"p6100","¿A cual de los siguientes regímenes de seguridad social en salud está afiliado:",1377,8.4
+"impa","Ingreso monetario de la primera actividad antes de imputación",242,1.48
+"isa","Ingreso monetario de la segunda actividad antes de imputación",31,0.19
+"p7070","¿cuánto recibió o ganó ….. el mes pasado en ese segundo trabajo o negocio?",31,0.19
+"maxEducLevel","max. education level attained",1,0.01
