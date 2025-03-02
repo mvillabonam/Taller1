@@ -119,6 +119,21 @@ db2 <- db2 %>% mutate(Occupation = if_else(is.na(p6240), NA,
                                 TRUE ~ as.character(p6240)
                               )))
 
+db2 = db2 %>%
+  mutate(oficio2 = case_when(
+    oficio %in% c(1, 2, 9, 12) ~ "Profesionales Altamente Calificados",
+    oficio %in% c(3, 5, 7, 8) ~ "Técnicos y Tecnólogos",
+    oficio %in% c(11, 31, 32, 33, 39) ~ "Administración y Oficinas",
+    oficio %in% c(41, 43, 45) ~ "Ventas y Comerciantes",
+    oficio %in% c(16, 17, 15) ~ "Arte y Cultura",
+    oficio %in% c(54, 57, 58) ~ "Servicios Personales",
+    oficio %in% c(98, 97, 36, 37) ~ "Transporte y Logística",
+    oficio %in% c(61, 62, 71) ~ "Agricultura y Minería",
+    oficio %in% c(81, 83, 85, 95) ~ "Oficios Industriales",
+    oficio %in% c(21, 40) ~ "Directivos y Gerentes",
+    TRUE ~ "Otros"
+  ))
+
 # OCCUPIED = FORMAL + INFORMAL. 
 Occupied_description <- db2 %>%
   group_by(Occupation) %>%
@@ -757,25 +772,8 @@ set.seed(10101), where 10101 is the seed.)
 ```{r}
 set.seed(1541)
 
-db2 = db2 %>%
-  mutate(oficio2 = case_when(
-    oficio %in% c(1, 2, 9, 12) ~ "Profesionales Altamente Calificados",
-    oficio %in% c(3, 5, 7, 8) ~ "Técnicos y Tecnólogos",
-    oficio %in% c(11, 31, 32, 33, 39) ~ "Administración y Oficinas",
-    oficio %in% c(41, 43, 45) ~ "Ventas y Comerciantes",
-    oficio %in% c(16, 17, 15) ~ "Arte y Cultura",
-    oficio %in% c(54, 57, 58) ~ "Servicios Personales",
-    oficio %in% c(98, 97, 36, 37) ~ "Transporte y Logística",
-    oficio %in% c(61, 62, 71) ~ "Agricultura y Minería",
-    oficio %in% c(81, 83, 85, 95) ~ "Oficios Industriales",
-    oficio %in% c(21, 40) ~ "Directivos y Gerentes",
-    TRUE ~ "Otros"
-  ))
 
-data = db2 |> 
-  drop_na(y_salary_m)
-
-in_train = createDataPartition(y = data$y_salary_m, 
+in_train = createDataPartition(y = data$impa_oi, 
                                p = 0.7, 
                                list = FALSE)
 training = data %>% 
@@ -796,19 +794,19 @@ the previous specifications with at least five (5) additional specifications tha
 explore non-linearities and complexity.
 
 ```{r}
-formula_1 = formula(log(y_salary_m) ~ age + I(age^2))
-formula_2 = formula(log(y_salary_m) ~ female)
-formula_3 = formula(log(y_salary_m) ~ female + age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1))
+formula_1 = formula(log(impa_oi) ~ age + I(age^2))
+formula_2 = formula(log(impa_oi) ~ female)
+formula_3 = formula(log(impa_oi) ~ female + age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1))
 
-formula_4 = formula(log(y_salary_m) ~ female + age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1) + factor(oficio2))
+formula_4 = formula(log(impa_oi) ~ female + age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1) + factor(oficio2))
 
-formula_5 = formula(log(y_salary_m) ~ female * factor(maxEducLevel) + age + I(age^2) + informal + factor(estrato1) + factor(oficio2))
+formula_5 = formula(log(impa_oi) ~ female * factor(maxEducLevel) + age + I(age^2) + informal + factor(estrato1) + factor(oficio2))
 
-formula_6 = formula(log(y_salary_m) ~ female * factor(maxEducLevel) + poly(age, 3) + informal * factor(maxEducLevel) + factor(estrato1) + factor(oficio2))
+formula_6 = formula(log(impa_oi) ~ female * factor(maxEducLevel) + poly(age, 3) + informal * factor(maxEducLevel) + factor(estrato1) + factor(oficio2))
 
-formula_7 = formula(log(y_salary_m) ~ female * factor(maxEducLevel) + poly(age, 3) + informal * factor(maxEducLevel) + factor(estrato1) * factor(maxEducLevel) + factor(oficio2))
+formula_7 = formula(log(impa_oi) ~ female * factor(maxEducLevel) + poly(age, 3) + informal * factor(maxEducLevel) + factor(estrato1) * factor(maxEducLevel) + factor(oficio2))
 
-formula_8 = formula(log(y_salary_m) ~ female * factor(maxEducLevel) * factor(estrato1) + poly(age, 3) + informal * factor(maxEducLevel) + factor(oficio2))
+formula_8 = formula(log(impa_oi) ~ female * factor(maxEducLevel) * factor(estrato1) + poly(age, 3) + informal * factor(maxEducLevel) + factor(oficio2))
 
 ```
 
@@ -826,9 +824,9 @@ evaluate_model = function(model) {
   
   prediction = predict(model, newdata = test)
   
-  result = list("RMSE" = RMSE(pred = exp(prediction), obs = test$y_salary_m),
+  result = list("RMSE" = RMSE(pred = exp(prediction), obs = test$impa_oi),
                 "Prediction" = exp(prediction),
-                "Resid" = test$y_salary_m-exp(prediction))
+                "Resid" = test$impa_oi-exp(prediction))
   return(result)
 }
 
@@ -845,9 +843,9 @@ flawed model?
 
 ```{r}
 
-check_model(models[[7]])
+check_model(models[[8]])
 
-qqnorm(result[[7]][["Resid"]])
+qqnorm(result[[8]][["Resid"]])
 
 ```
 LOOCV. For the two models with the lowest predictive error in the previous section, calculate the predictive error using Leave-one-out-cross-validation
@@ -855,16 +853,44 @@ LOOCV. For the two models with the lowest predictive error in the previous secti
 validation set approach and explore the potential links with the influence statistic. (Note: when attempting this subsection, the calculations can take a long
 time, depending on your coding skills, plan accordingly!)
 
+Paralellization:
+
+```{r}
+
+library(caret)
+library(doParallel)
+library(future)
+library(microbenchmark)
+
+# Definir el control 
+ctrl_par <- trainControl(method = "LOOCV", verboseIter = TRUE, allowParallel = TRUE)
+
+cl <- makeCluster(detectCores() - 1) # Usa todos los núcleos menos 1
+registerDoParallel(cl)
+  
+
+set.seed(1541)
+train_parallel <- function() {
+  
+  model <- train(formula_7, data = data, method = 'lm', trControl = ctrl_par)
+  
+  return(model)
+}
+
+time_par <- system.time(mod_par <- train_parallel())
+
+stopCluster(cl)  # Detener el clúster después de entrenar
+registerDoSEQ()  # Volver a ejecución secuencial
+
+print(paste("Tiempo paralelo:", time_par["elapsed"], "segundos"))
+
+```
+
+Parallelization with furrr
 
 ```{r}
 
 plan(multisession, workers = parallel::detectCores() - 1)
-
-# ctrl = trainControl(method = "LOOCV", verboseIter = T)
-# 
-# mod_7 = train(formula_7, data, method = 'lm', trControl = ctrl)
-# mod_6 = train(formula_6, data, method = 'lm', trControl = ctrl)
-
 
 loocv_model = function(i, data, model_formula) {
   train_data = data[-i, ]
@@ -877,18 +903,14 @@ loocv_model = function(i, data, model_formula) {
   return(rmse)
 }
 
-rmse_mod7 = future_map_dbl(1:nrow(data), ~ loocv_model(.x, data, formula_7))
+time_furr <- system.time(rmse_mod7 <- future_map_dbl(1:nrow(data), ~ loocv_model(.x, data, formula_7)))
 mean(rmse_mod7) # 745794.5
-
-rmse_mod6 = future_map_dbl(1:nrow(data), ~ loocv_model(.x, data, formula_6))
-mean(rmse_mod6) # 753385
 
 plan(sequential)
 
 ```
 
 Leverage statistic
-
 ```{r}
 ## RUN THE MODEL WITH ALL OBS
 
@@ -920,3 +942,49 @@ for (i in 1:N) {
   looCV_error <- mean(LOO)
   sqrt(looCV_error)
 ```
+
+
+```{r}
+
+
+
+```
+```{r}
+library(caret)
+library(doParallel)
+
+# Número de núcleos
+num_cores <- detectCores() - 1  
+
+# Configurar cluster
+cl <- makeCluster(num_cores)
+registerDoParallel(cl)
+
+# Control de entrenamiento con paralelización activada
+ctrl_par <- trainControl(method = "LOOCV", verboseIter = TRUE, allowParallel = TRUE)
+
+# Control secuencial
+ctrl_seq <- trainControl(method = "LOOCV", verboseIter = TRUE, allowParallel = FALSE)
+
+# Medir tiempo secuencial
+registerDoSEQ()  # Asegurar que corra en modo secuencial
+time_seq <- system.time(mod_seq <- train(formula_7, data = data2, method = 'lm', trControl = ctrl_seq))
+
+# Medir tiempo paralelo
+registerDoParallel(cl)  # Asegurar que use los núcleos disponibles
+time_par <- system.time(mod_par <- train(formula_7, data = data2, method = 'lm', trControl = ctrl_par))
+
+# Detener cluster
+stopCluster(cl)
+registerDoSEQ()  # Volver a ejecución normal
+
+# Mostrar tiempos
+print(paste("Tiempo secuencial:", time_seq["elapsed"], "segundos"))
+print(paste("Tiempo paralelo:", time_par["elapsed"], "segundos"))
+
+```
+
+
+
+
+
