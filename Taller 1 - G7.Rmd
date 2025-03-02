@@ -372,11 +372,6 @@ dev.off()
 rm(db_miss,question, M,Nobs,mode_edu,dummy_maxEducLevel,Occupied_description,imp_vars,obs_vars,titles,Stats,Obs_vs_Imp, imp_idx,obs_idx,cols, check,lM2,lM1,N,WAGES,TOTAL_INCOME,RES,LEV)
 ```
 
-```{r Data exploration, echo=FALSE, message=FALSE}
-
-
-```
-
 ## 3. Age wage profile
 ### 3.1 Running the regression
 
@@ -753,7 +748,7 @@ db2 = db2 %>%
   ))
 
 data = db2 |> 
-  drop_na(y_salary_m)
+  drop_na(impa_oi)
 
 in_train = createDataPartition(y = data$y_salary_m, 
                                p = 0.7, 
