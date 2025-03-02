@@ -69,7 +69,7 @@ plan(sequential)
 ```{r Cleaning of data set, echo=FALSE}
 #--------------------FILTERING BY +18, EMPLOYED IN BOGOTÁ-----------------------
 
-db2 <- db %>% filter(age > 18, ocu == 1, dominio == "BOGOTA" )
+db2 <- db %>% filter(age > 18, ocu == 1, dominio == "BOGOTA")
 
 #------------ FRAMING MISSING VALUES -------------------------------------------
 Nobs <- nrow(db2) 
@@ -369,7 +369,7 @@ par(mfrow = c(2, 2))
 plot(lM2)
 dev.off()
 
-rm(db_miss,question, M,Nobs,mode_edu,dummy_maxEducLevel,lM1, Occupied_description,imp_vars,obs_vars,titles,Stats,Obs_vs_Imp, imp_idx,obs_idx,cols, check,lM2,lM1,N,WAGES,TOTAL_INCOME,RES,LEV)
+rm(db_miss,question, M,Nobs,mode_edu,dummy_maxEducLevel,Occupied_description,imp_vars,obs_vars,titles,Stats,Obs_vs_Imp, imp_idx,obs_idx,cols, check,lM2,lM1,N,WAGES,TOTAL_INCOME,RES,LEV)
 ```
 
 ```{r Data exploration, echo=FALSE, message=FALSE}
@@ -825,9 +825,9 @@ flawed model?
 
 ```{r}
 
-check_model(models[[7]])
+check_model(models[[8]])
 
-qqnorm(result[[7]][["Resid"]])
+qqnorm(result[[8]][["Resid"]])
 
 ```
 LOOCV. For the two models with the lowest predictive error in the previous section, calculate the predictive error using Leave-one-out-cross-validation
