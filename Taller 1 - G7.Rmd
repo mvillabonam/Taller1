@@ -557,13 +557,17 @@ ggplot(data = data.frame(Fitted = fitted(model_unconditional), Residuals = resid
   labs(title = "Residuals vs Fitted Values", x = "Fitted Values", y = "Residuals")
 
 # Exogeneity: Mean of residuals should be zero
-mean(residuals(model_unconditional))
+mean_residuals_1<-mean(residuals(model_unconditional))
 
 # Homoscedasticity: Breusch-Pagan Test
-bptest(model_unconditional)  #P-value < 0.05 suggests rejecting the null hypothesis
+bp_test_1<-bptest(model_unconditional)  #P-value < 0.05 suggests rejecting the null hypothesis
 
 # No Autocorrelation: Durbin-Watson Test
-dwtest(model_unconditional) # P-value < 0.05 suggests rejecting the null hypothesis
+dw_test_1<-dwtest(model_unconditional) # P-value < 0.05 suggests rejecting the null hypothesis
+
+robust_se_1 <- coeftest(model_unconditional, vcov = vcovHC(model_unconditional, type = "HC3"))
+print(robust_se_1)
+
 ```
 The unconditional model provides clear evidence of a gender wage gap, with females earning significantly less than males on average, as indicated by the highly statistically significant coefficient for the gender variable female. This suggests that gender plays a significant role in explaining variations in log-transformed salaries, highlighting potential gender disparities in earnings,however, the statistical significance of the model must be interpreted with caution due to violations of key assumptions: The extremely low p-values from the Breusch-Pagan test for heteroscedasticity and the Durbin-Watson test for autocorrelation reveal strong evidence against the null hypotheses, indicating issues with homoscedasticity and the independence of errors. These violations imply that traditional inference methods may be flawed, potentially affecting the reliability of the standard errors and p-values. To draw more robust conclusions, we proceed with estimating a conditional model that includes control variables and addresses the issues of heteroscedasticity and autocorrelation. 
 
@@ -572,6 +576,11 @@ The unconditional model provides clear evidence of a gender wage gap, with femal
 # Conditional Gender Wage Gap (OLS)
 conditional_model <- lm(log(impa_oi) ~ female + age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1), data = db2)
 summary(conditional_model)
+
+check_model(conditional_model)
+#robust standard errors 
+robust_se_2 <- coeftest(conditional_model, vcov = vcovHC(conditional_model, type = "HC3"))
+print(robust_se_2)
 # ------------------------ FRISCH-WAUGH-LOVELL THEOREM--------------------------------
 #Estimation with FWL to isolate the effect of female on log(salary) by partialling out the control variables. 
 # Fit the control model (without female)
@@ -598,29 +607,17 @@ ggplot(data = data.frame(Fitted = fitted(model_unconditional), Residuals = resid
   labs(title = "Residuals vs Fitted Values", x = "Fitted Values", y = "Residuals")
 
 # 2. Exogeneity: Mean of residuals should be zero
-mean(residuals(fwl_model_1)) # Mean is aprox. 0 supporting the assumption of exogeneity
+mean_residuals_2<-mean(residuals(fwl_model_1)) # Mean is aprox. 0 supporting the assumption of exogeneity
 
 # 3. Homoscedasticity: Breusch-Pagan Test
-bptest(fwl_model_1)  #P-value > 0.05 suggests no strong evidence of heteroscedasticity in the residuals
+bp_test_2<-bptest(fwl_model_1)  #P-value > 0.05 suggests no strong evidence of heteroscedasticity in the residuals
 
 # 4. No Autocorrelation: Durbin-Watson Test
-dwtest(fwl_model_1) # #P-value < 0.05 suggests rejecting the null hypothesis
+dw_test_2<-dwtest(fwl_model_1) # #P-value < 0.05 suggests rejecting the null hypothesis
 
 # 5. Multicollinearity
 vif_values <- vif(conditional_model)
 vif_values #Multicollinearity is moderate to high for age and I(age^2) (GVIF^(1/(2*Df)) > 5), which is expected because I(age^2) is a transformation of age. The other variables do not exhibit multicollinearity.
-
-
-#
-robust_se <- coeftest(fwl_model_1, vcov = vcovHC(fwl_model_1, type = "HC1"))
-print(robust_se)
-
-
-#The model shows a highly significant negative effect of being female on salary,
-#with a coefficient of -0.217. The standard error for this coefficient is small (0.0113),
-#indicating precise estimation, the intercept is not significant, which is expected since
-#residuals are used and finally the robust standard errors suggest the model has effectively addressed 
-#autocorrelation issues, providing solid and reliable results.
 
 # ------------------------ FWL WITH BOOTSTRAP ----------------------------------------
 fwl_bootstrap <- function(data, indices) {
@@ -671,6 +668,7 @@ stargazer(
   ),
   notes = " Control variables for models 2, 3, and 4 include: age, maxEducLevel, informal, and estrato1."
 )
+
 ```
 
 ```{r Peak ages}
