@@ -12,27 +12,28 @@ editor_options:
 gc(rm(list = ls()))
 knitr::opts_chunk$set(echo = TRUE)
 require(pacman)
-p_load(stringr, # html to text
-       tidyverse, # tidy-data
-       skimr, # summary data
-       rvest, # Web scrapping
-       dplyr, # managing tables
-       corrplot,#Correlation plot
-       reshape2, # Long format for table 
-       stargazer, # Latex tables
-       gridExtra, # visualizing missing data
-       furrr, 
-       mosaic, # Bootstrap
-       gridExtra, #multiple graphs
-       boot,
-       car,
-       lmtest,
-       caret, 
-       sandwich,
-       performance,
-       doParallel,
-       future,
-       microbenchmark)
+p_load(
+  stringr,    # HTML to text  
+  tidyverse,  # Tidy data  
+  skimr,      # Data summary  
+  rvest,      # Web scraping  
+  dplyr,      # Table management  
+  corrplot,   # Correlation plot  
+  reshape2,   # Long table format  
+  stargazer,  # LaTeX tables  
+  gridExtra,  # Multiple graphs  
+  furrr,      # Parallel processing  
+  mosaic,     # Bootstrap  
+  boot,       # Resampling  
+  car,        # Regression tools  
+  lmtest,     # Regression tests  
+  caret,      # Machine learning  
+  sandwich,   # Robust SEs  
+  performance,# Model quality  
+  doParallel, # Parallel computing  
+  future,     # Async processing  
+  microbenchmark # Performance test  
+)
 
 ```
 
