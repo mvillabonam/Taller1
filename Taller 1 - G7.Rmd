@@ -57,8 +57,9 @@ tables_list <- future_map(htmls, scrape_table)
 db <- bind_rows(tables_list) %>% select(-...1)
 
 plan(sequential) 
-    db = bind_rows(tables_list) %>% select(-...1)
-    rm(web_page,table,base,htmls,url,scrape_table)
+
+
+rm(web_page,table,base,htmls,url,scrape_table)
 ```
 
 </div>
