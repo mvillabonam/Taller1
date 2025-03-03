@@ -29,7 +29,11 @@ p_load(stringr, # html to text
        lmtest,
        caret, 
        sandwich,
-       performance)
+       performance,
+       doParallel,
+       future,
+       microbenchmark)
+
 ```
 
 
@@ -57,9 +61,6 @@ tables_list <- future_map(htmls, scrape_table)
 db <- bind_rows(tables_list) %>% select(-...1)
 
 plan(sequential) 
-
-
-rm(web_page,table,base,htmls,url,scrape_table)
 ```
 
 </div>
@@ -748,7 +749,6 @@ set.seed(10101), where 10101 is the seed.)
 ```{r}
 set.seed(1541)
 
-
 in_train = createDataPartition(y = db2$impa_oi, 
                                p = 0.7, 
                                list = FALSE)
@@ -819,9 +819,67 @@ flawed model?
 
 ```{r}
 
+check_model(models[[7]])
 check_model(models[[8]])
 
-qqnorm(result[[8]][["Resid"]])
+```
+```{r}
+
+residuals = data.frame("resid_7" = result[[7]]$Resid,
+                       "resid_8" = result[[8]]$Resid)
+
+residuals = residuals |> 
+  mutate(resid_7_std = scale(resid_7), 
+         resid_8_std = scale(resid_8))
+
+ggplot(residuals, aes(x = resid_7_std)) +
+  geom_histogram(bins = 30, fill = "purple", alpha = 0.5) +
+  geom_vline(xintercept = c(-2, 2), linetype = "dashed", color = "red") +
+  theme_minimal() +
+  labs(title = "Distribution of Standardized Residuals (Model 7)", 
+       x = "Standardized Residual", y = "Count")
+
+ggplot(residuals, aes(x = resid_8_std)) +
+  geom_histogram(bins = 30, fill = "purple", alpha = 0.5) +
+  geom_vline(xintercept = c(-2, 2), linetype = "dashed", color = "red") +
+  theme_minimal() +
+  labs(title = "Distribution of Standardized Residuals (Model 8)", 
+       x = "Standardized Residual", y = "Count")
+```
+
+```{r}
+low_7 = quantile(residuals$resid_7, 0.05)
+up_7 = quantile(residuals$resid_7, 0.95)
+
+low_8 = quantile(residuals$resid_8, 0.05)
+up_8 = quantile(residuals$resid_8, 0.95)
+
+data = test |> 
+  select(impa_oi, female, age, y_total_m, oficio2, estrato1) |> 
+  mutate(pred_7 = result[[7]][["Prediction"]],
+         pred_8 = result[[8]][["Prediction"]],
+         resid_7_std = residuals$resid_7_std,
+         resid_8_std = residuals$resid_8_std)
+
+out_7 = data |> filter(abs(resid_7_std) > 2)
+out_8 = data |> filter(abs(resid_8_std) > 2)
+
+
+ggplot(data, aes(x = pred_7, y = resid_7_std)) +
+  geom_point(alpha = 0.5, color = "blue") +
+  geom_hline(yintercept = c(-2, 2), linetype = "dashed", color = "red") +
+  theme_minimal() +
+  labs(title = "Standardized Residuals vs. Fitted Values (Model 7)",
+       x = "Fitted Values (Predicted impa_oi)",
+       y = "Standardized Residuals")
+
+ggplot(data, aes(x = pred_8, y = resid_8_std)) +
+  geom_point(alpha = 0.5, color = "blue") +
+  geom_hline(yintercept = c(-2, 2), linetype = "dashed", color = "red") +
+  theme_minimal() +
+  labs(title = "Standardized Residuals vs. Fitted Values (Model 7)",
+       x = "Fitted Values (Predicted impa_oi)",
+       y = "Standardized Residuals")
 
 ```
 LOOCV. For the two models with the lowest predictive error in the previous section, calculate the predictive error using Leave-one-out-cross-validation
@@ -833,32 +891,31 @@ Paralellization:
 
 ```{r}
 
-library(caret)
-library(doParallel)
-library(future)
-library(microbenchmark)
-
 # Definir el control 
 ctrl_par <- trainControl(method = "LOOCV", verboseIter = TRUE, allowParallel = TRUE)
-
-cl <- makeCluster(detectCores() - 1) # Usa todos los núcleos menos 1
+cl <- makeCluster(detectCores() - 1) 
 registerDoParallel(cl)
   
-
 set.seed(1541)
-train_parallel <- function() {
+train_parallel <- function(formula) {
   
-  model <- train(formula_7, data = data, method = 'lm', trControl = ctrl_par)
+  model <- train(formula, data = db2, method = 'lm', trControl = ctrl_par)
   
   return(model)
 }
 
-time_par <- system.time(mod_par <- train_parallel())
+time_par3 <- system.time(mod_par3 <- train_parallel(formula_3))
+time_par7 <- system.time(mod_par7 <- train_parallel(formula_7))
+time_par8 <- system.time(mod_par8 <- train_parallel(formula_8))
 
-stopCluster(cl)  # Detener el clúster después de entrenar
-registerDoSEQ()  # Volver a ejecución secuencial
+stopCluster(cl)  
+registerDoSEQ()  
 
-print(paste("Tiempo paralelo:", time_par["elapsed"], "segundos"))
+print(paste("Tiempo paralelo:", time_par7["elapsed"], "segundos"))
+print(paste("Tiempo paralelo:", time_par8["elapsed"], "segundos"))
+
+mod_par7$results
+mod_par8$results
 
 ```
 
@@ -874,31 +931,50 @@ loocv_model = function(i, data, model_formula) {
 
   modelo = lm(model_formula, data = train_data, weights = fex_c)  # Ajustar modelo
   prediction = predict(modelo, newdata = test_data)  # Predecir
-  rmse = RMSE(test_data$y_salary_m, exp(prediction))  # Error cuadrático
+  rmse = RMSE(pred = prediction, obs = log(test_data$impa_oi))  # Error cuadrático
 
   return(rmse)
 }
 
-time_furr <- system.time(rmse_mod7 <- future_map_dbl(1:nrow(data), ~ loocv_model(.x, data, formula_7)))
-mean(rmse_mod7) # 745794.5
+time_furr3 <- system.time(rmse_mod3 <- future_map_dbl(1:nrow(db2), ~ loocv_model(.x, db2, formula_3)))
+
+time_furr7 <- system.time(rmse_mod7 <- future_map_dbl(1:nrow(db2), ~ loocv_model(.x, db2, formula_7)))
+
+time_furr8 <- system.time(rmse_mod8 <- future_map_dbl(1:nrow(db2), ~ loocv_model(.x, db2, formula_8)))
 
 plan(sequential)
 
+mean(rmse_mod7)
+mean(rmse_mod8)
+
+print(paste("Tiempo paralelo:", time_furr7["elapsed"], "segundos"))
+print(paste("Tiempo paralelo:", time_furr8["elapsed"], "segundos"))
+
+```
+
+
+```{r}
+comparison <- data.frame(
+  Model = c("Model 7", "Model 8"),
+  LOOCV_RMSE = c(mean(rmse_mod7), mean(rmse_mod8)),
+  Validation_RMSE = c(rmse[7], rmse[8])
+)
+print(comparison)
 ```
 
 Leverage statistic
 ```{r}
 ## RUN THE MODEL WITH ALL OBS
 
-full_model <- lm(formula_7, data, weights = fex_c, na.action = na.omit)
+full_model <- lm(formula_3, db2, weights = fex_c)
 
-X<- model.matrix(full_model, na.action = na.omit)
+X <- model.matrix(full_model)
 y <- model.response(model.frame(full_model))
 
 beta_hat <- full_model$coefficients
   
 ## Calculate the inverse of  (X'X), call it G_inv
-G_inv<- ginv(t(X)%*%X)
+G_inv<- solve(t(X)%*%X)
 
 ## and 1/1-hi
 vec<- 1/(1-hatvalues(full_model))
@@ -909,58 +985,15 @@ LOO <- numeric(N)  # To store the errors
   # Loop over each observation
 for (i in 1:N) {
   # get the new beta
-  new_beta<- beta_hat  - vec[i] * G_inv %*% as.vector(X[i, ]) * full_model$residuals[i]
+  new_beta<- beta_hat  - vec[i] * G_inv %*% as.vector(X[i, ]) *      full_model$residuals[i]
     ## get the new error
-    new_error<- (y[i]- (X[i, ] %*% new_beta))^2
+    new_error <- (y[i]- (X[i, ] %*% new_beta))^2
     LOO[i]<-  new_error
   }
   
   looCV_error <- mean(LOO)
   sqrt(looCV_error)
 ```
-
-
-```{r}
-
-
-
-```
-```{r}
-library(caret)
-library(doParallel)
-
-# Número de núcleos
-num_cores <- detectCores() - 1  
-
-# Configurar cluster
-cl <- makeCluster(num_cores)
-registerDoParallel(cl)
-
-# Control de entrenamiento con paralelización activada
-ctrl_par <- trainControl(method = "LOOCV", verboseIter = TRUE, allowParallel = TRUE)
-
-# Control secuencial
-ctrl_seq <- trainControl(method = "LOOCV", verboseIter = TRUE, allowParallel = FALSE)
-
-# Medir tiempo secuencial
-registerDoSEQ()  # Asegurar que corra en modo secuencial
-time_seq <- system.time(mod_seq <- train(formula_7, data = data2, method = 'lm', trControl = ctrl_seq))
-
-# Medir tiempo paralelo
-registerDoParallel(cl)  # Asegurar que use los núcleos disponibles
-time_par <- system.time(mod_par <- train(formula_7, data = data2, method = 'lm', trControl = ctrl_par))
-
-# Detener cluster
-stopCluster(cl)
-registerDoSEQ()  # Volver a ejecución normal
-
-# Mostrar tiempos
-print(paste("Tiempo secuencial:", time_seq["elapsed"], "segundos"))
-print(paste("Tiempo paralelo:", time_par["elapsed"], "segundos"))
-
-```
-
-
 
 
 
