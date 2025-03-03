@@ -773,13 +773,13 @@ set.seed(10101), where 10101 is the seed.)
 set.seed(1541)
 
 
-in_train = createDataPartition(y = data$impa_oi, 
+in_train = createDataPartition(y = db2$impa_oi, 
                                p = 0.7, 
                                list = FALSE)
-training = data %>% 
+training = db2 %>% 
   filter(row_number() %in% in_train)
 
-test = data %>% 
+test = db2 %>% 
   filter(!row_number() %in% in_train)
 
 for (var in c("maxEducLevel", "estrato1", "oficio2")) {
