@@ -538,20 +538,15 @@ ggplot(plot_data, aes(x = age, y = log_salary)) +
 
 # We are transforming the 'sex' variable to create a new 'Female' indicator where
 #female = 1 for females (sex = 0) and Female = 0 for males (sex = 1) (According to data dictionary)
-
 db2 <- db2 %>%
   mutate(female = ifelse(sex == 0, 1, 0)) 
 head(db2)
 
-# Checking and removing non-positive values in y_salary_m
-non_positive_y_salary_m <- sum(db2$y_salary_m <= 0)
-cat("Number of non-positive values in y_salary_m:", non_positive_y_salary_m, "\n")
-db2 <- db2 %>% filter(y_salary_m > 0)
-
-model_unconditional <- lm(log(y_salary_m) ~ female, data = db2)
+model_unconditional <- lm(log(impa_oi) ~ female, data = db2)
 summary(model_unconditional)
 
 #  GAUSS MARCOV THEOREM 
+check_model(model_unconditional)
 #  Linearity Check:
 ggplot(data = data.frame(Fitted = fitted(model_unconditional), Residuals = residuals(model_unconditional)), 
        aes(x = Fitted, y = Residuals)) +
@@ -573,24 +568,26 @@ The unconditional model provides clear evidence of a gender wage gap, with femal
 ```{r Conditional Gender Wage Gap}
 
 # Conditional Gender Wage Gap (OLS)
-conditional_model <- lm(log(y_salary_m) ~ female + age + I(age^2) + maxEducLevel + informal + estrato1, data = db2)
+conditional_model <- lm(log(impa_oi) ~ female + age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1), data = db2)
 summary(conditional_model)
-
 # ------------------------ FRISCH-WAUGH-LOVELL THEOREM--------------------------------
 #Estimation with FWL to isolate the effect of female on log(salary) by partialling out the control variables. 
 # Fit the control model (without female)
-controls <- lm(log(y_salary_m) ~ age + I(age^2) + maxEducLevel + informal + estrato1, data = db2)
-residuals_w <- residuals(controls)
+controls <- lm(log(impa_oi) ~  age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1), data = db2)
+log_income <- residuals(controls)
 
-gender <- lm(female ~ age + I(age^2) + maxEducLevel + informal + estrato1, data = db2)
-residuals_x <- residuals(gender)
+gender <- lm(female ~ age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1), data = db2)
+female<- residuals(gender)
 
 #The effect of female using the residuals
-fwl_model_1 <- lm(residuals_w ~ residuals_x)
+fwl_model_1 <- lm(log_income ~ female)
 summary_fwl <- summary(fwl_model_1)  
 summary_fwl
 
 #  GAUSS MARCOV THEOREM 
+qqnorm(residuals(fwl_model_1))
+check_model(fwl_model_1)
+
 # 1. Linearity Check: Residual vs Fitted Plot
 ggplot(data = data.frame(Fitted = fitted(model_unconditional), Residuals = residuals(fwl_model_1)), 
        aes(x = Fitted, y = Residuals)) +
@@ -611,8 +608,11 @@ dwtest(fwl_model_1) # #P-value < 0.05 suggests rejecting the null hypothesis
 vif_values <- vif(conditional_model)
 vif_values #Multicollinearity is moderate to high for age and I(age^2) (GVIF^(1/(2*Df)) > 5), which is expected because I(age^2) is a transformation of age. The other variables do not exhibit multicollinearity.
 
+
+#
 robust_se <- coeftest(fwl_model_1, vcov = vcovHC(fwl_model_1, type = "HC1"))
 print(robust_se)
+
 
 #The model shows a highly significant negative effect of being female on salary,
 #with a coefficient of -0.217. The standard error for this coefficient is small (0.0113),
@@ -621,78 +621,53 @@ print(robust_se)
 #autocorrelation issues, providing solid and reliable results.
 
 # ------------------------ FWL WITH BOOTSTRAP ----------------------------------------
-# Función de bootstrap para FWL
-# Función de bootstrap para FWL
 fwl_bootstrap <- function(data, indices) {
-  # Resample the data
   boot_data <- data[indices, ]
-  control_model_boot <- lm(log(y_salary_m) ~ age + maxEducLevel + informal + estrato1, data = boot_data)
-  boot_data$residuals_control <- residuals(control_model_boot)
-  fwl_model_boot <- lm(residuals_control ~ female, data = boot_data)
-  return(c(coef(fwl_model_boot)["female"]))
+  
+  controls_boot <- lm(log(impa_oi) ~ age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1), data = boot_data)
+  log_income_boot <- residuals(controls_boot)
+  
+  gender_boot <- lm(female ~ age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1), data = boot_data)
+  female_boot <- residuals(gender_boot)
+  
+  fwl_model_boot <- lm(log_income_boot ~ female_boot)
+  
+  return(coef(fwl_model_boot)["female_boot"])
 }
 
-# Bootstrap with 1000 resamples
-set.seed(100)  # For reproducibility
+set.seed(1010) 
 fwl_boot_results <- boot(data = db2, statistic = fwl_bootstrap, R = 1000)
 
-# Ajustar el modelo fuera de la función de bootstrap para pruebas y gráficos
-control_model <- lm(log(y_salary_m) ~ age + maxEducLevel + informal + estrato1, data = db2)
-db2$residuals_control <- residuals(control_model)
-fwl_boot_model <- lm(residuals_control ~ female, data = db2)
-summary(fwl_boot_model)
-
-#  GAUSS MARKOV THEOREM 
-# 1. Linearity Check: Residual vs Fitted Plot
-ggplot(data = data.frame(Fitted = fitted(fwl_boot_model), Residuals = residuals(fwl_boot_model)), 
-       aes(x = Fitted, y = Residuals)) +
-  geom_point() +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
-  labs(title = "Residuals vs Fitted Values", x = "Fitted Values", y = "Residuals")
-
-# 2. Exogeneity: Mean of residuals should be zero
-mean_residuals <- mean(residuals(fwl_boot_model)) # Mean is approx. 0 supporting the assumption of exogeneity
-print(mean_residuals)
-
-# 3. Homoscedasticity: Breusch-Pagan Test
-bp_test <- bptest(fwl_boot_model)  # P-value < 0.05 suggests rejecting the null hypothesis, and evidence of hero
-print(bp_test)
-
-# 4. No Autocorrelation: Durbin-Watson Test
-dw_test <- dwtest(fwl_boot_model) # P-value < 0.05 suggests rejecting the null hypothesis
-print(dw_test)
-
-# Comparando los resultados
+boot_estimates <- fwl_boot_results$t
 boot_se <- sd(boot_estimates)
 boot_mean <- mean(boot_estimates)
 
-results <- data.frame(
-  Method = c("FWL", "Bootstrap"),
-  Estimate = c(coef(fwl_boot_model)["female"], boot_mean),
-  StdError = c(summary(fwl_boot_model)$coefficients["female", "Std. Error"], boot_se)
-)
-print(results)
+# Dummy model with the bootstrap results
+bootstrap_model <- lm(log(impa_oi) ~ female, data = db2)  
+bootstrap_model$coefficients <- c("(Intercept)" = 0, "female" = boot_mean)
+bootstrap_model$residuals <- rnorm(nrow(db2))  
+bootstrap_model$fitted.values <- rnorm(nrow(db2))  
+bootstrap_model$rank <- 2  
+bootstrap_model$df.residual <- nrow(db2) - 2  
+bootstrap_model$se <- c("(Intercept)" = 0, "female" = boot_se)
 
-coef_names <- names(coef(fwl_model_1))
-coef_names[2] <- "female"
 
-# Comparing the results
+#Export to latex
 stargazer(
-  model_unconditional, conditional_model, fwl_model_1,
+  model_unconditional, conditional_model, fwl_model_1, bootstrap_model,
   title = "Comparison of Unconditional and Conditional Gender Wage Gaps",
-  type = "text", # Cambia a "html" o "latex" para otros formatos
-  align = TRUE, 
+  type = "latex",
+  align = TRUE,
   out = "gender_wage_gap_comparison.html",
   covariate.labels = c("Female"), # Solo mostramos la etiqueta para "Female"
-  column.labels = c("Unconditional", "Conditional", "FWL"),
-  dep.var.labels = "Log(Salary)",
-  keep = c("female", "residuals_x"), # Solo mantenemos "female" y "residuals_x"
+  dep.var.labels.include = FALSE, # No incluir el nombre de la variable dependiente
+  keep = c("female"), # Solo mantenemos "female"
   no.space = TRUE,
   add.lines = list(
-    c("Method", "Unconditional", "Conditional", "FWL"),
-    c("Observations", nobs(model_unconditional), nobs(conditional_model), nobs(fwl_model_1))
+    c("Method", "Unconditional", "Conditional OLS", "FWL", "Bootstrap"),
+    c("Observations", nobs(model_unconditional), nobs(conditional_model), nobs(fwl_model_1), nrow(db2))
   ),
-  notes = "Standard errors are in parentheses."
+  notes = " Control variables for models 2, 3, and 4 include: age, maxEducLevel, informal, and estrato1."
 )
 ```
 
