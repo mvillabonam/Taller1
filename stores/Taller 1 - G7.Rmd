@@ -1,0 +1,1076 @@
+---
+title: "Taller 1 - BD&ML Grupo 7"
+author: "Grupo 7"
+date: "2025-02-02"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+gc(rm(list = ls()))
+knitr::opts_chunk$set(echo = TRUE)
+require(pacman)
+p_load(
+  stringr,        # HTML to text  
+  tidyverse,      # Tidy data  
+  skimr,          # Data summary  
+  rvest,          # Web scraping  
+  dplyr,          # Table management  
+  corrplot,       # Correlation plot  
+  reshape2,       # Long table format  
+  stargazer,      # LaTeX tables  
+  gridExtra,      # Multiple graphs  
+  furrr,          # Parallel processing  
+  mosaic,         # Bootstrap  
+  boot,           # Resampling  
+  car,            # Regression tools  
+  lmtest,         # Regression tests  
+  caret,          # Machine learning  
+  sandwich,       # Robust SEs  
+  performance,    # Model quality  
+  doParallel,     # Parallel computing  
+  future,         # Async processing  
+  microbenchmark, # Performance test  
+  foreach         # Iterative processing
+)
+
+
+```
+
+
+## 2. Data proccessing
+
+### 2.a) Data description [On latex]
+
+### 2.b) Web Scrapping [Explanation on latex]
+
+<div>
+
+```{r 2.b) Scrapping}
+plan(multisession, workers = parallel::detectCores() - 1) 
+base <- "https://ignaciomsarmiento.github.io/GEIH2018_sample/pages/geih_"
+htmls <- paste0(base, "page_", 1:10, ".html")
+
+scrape_table <- function(url) {
+  web_page <- read_html(url)
+  table <- web_page %>%
+    html_nodes("table.table-striped") %>%
+    html_table(fill = TRUE)
+  return(table[[1]])  # Extraer el primer elemento (que es la tabla real)
+}
+tables_list <- future_map(htmls, scrape_table)
+db <- bind_rows(tables_list) %>% select(-...1)
+
+plan(sequential) 
+```
+
+</div>
+
+### 2.c) Data cleaning process
+#### 2.c.1) FRAMMING MISSING VALUES
+
+```{r Cleaning of data set, echo=FALSE}
+#--------------------FILTERING BY +18, EMPLOYED IN BOGOTÁ-----------------------
+
+db2 <- db %>% filter(age > 18, ocu == 1, dominio == "BOGOTA" )
+
+#------------ FRAMING MISSING VALUES -------------------------------------------
+Nobs <- nrow(db2) 
+db_miss <- data.frame(
+  Variable = names(db2),
+  n_missing = colSums(is.na(db2)),
+  p_missing = round(colSums(100*is.na(db2))/Nobs,2)
+) 
+rownames(db_miss) <- NULL
+
+question <- read_html("https://ignaciomsarmiento.github.io/GEIH2018_sample/dictionary.html")
+question <- question %>%
+        html_nodes("table") %>%
+        html_table(fill = TRUE)
+question = bind_rows(question)
+db_miss <- left_join(question, db_miss, by = "Variable")
+db_miss <- db_miss %>% arrange(desc(p_missing)) %>% filter(p_missing != 0) 
+write.csv(db_miss, "1. Missing values per variable.csv", row.names = FALSE)
+
+# SELECTING RELEVANT VARIABLES
+db2 <- db2 %>%
+  select(y_ingLab_m, y_salary_m, y_total_m, ie,iees,  
+         ingtotes, ingtotob, ingtot, y_bonificaciones_m, y_gananciaNeta_m, 
+         y_gananciaNetaAgro_m, y_primaNavidad_m, y_primaServicios_m, y_primaVacaciones_m, 
+         maxEducLevel, directorio, secuencia_p, orden, clase, dominio, mes, estrato1, 
+         sex, age, oficio, fex_c, depto, fex_dpto, fweight, 
+         informal,p6240,ocu,formal,informal,iees, imdi, impa, iof1, iof2, iof3h, iof6, isa,
+         iees, imdies, impaes,  iof1es, iof2es, iof3hes, iof3ies, iof6es, isaes,
+         cclasnr4, cclasnr5, cclasnr2, cclasnr6, cclasnr7, cclasnr8,
+         cclasnr11, cclasnr3,y_otros_m,y_vivienda_m,y_gananciaIndep_m)
+#skim(db2)
+```
+
+#### 2.c.2) CHOOSING VARIABLES
+
+```{r Data cleaning, echo=FALSE, message=FALSE, warning=FALSE}
+#------------ DATA CLEANING PROCESS: CONSISTENCY -------------------------------
+# P6240 to text for tables.
+db2 <- db2 %>% mutate(Occupation = if_else(is.na(p6240), NA,
+                              case_when(
+                                p6240 == 6 ~ "Other activity",
+                                p6240 == 5 ~ "Permanently unable to work",
+                                p6240 == 4 ~ "Domestic work",
+                                p6240 == 3 ~ "Studying",
+                                p6240 == 2 ~ "Looking for work",
+                                p6240 == 1 ~ "Working",
+                                TRUE ~ as.character(p6240)
+                              )))
+
+db2 = db2 %>%
+  mutate(oficio2 = case_when(
+    oficio %in% c(1, 2, 9, 12) ~ "Profesionales Altamente Calificados",
+    oficio %in% c(3, 5, 7, 8) ~ "Técnicos y Tecnólogos",
+    oficio %in% c(11, 31, 32, 33, 39) ~ "Administración y Oficinas",
+    oficio %in% c(41, 43, 45) ~ "Ventas y Comerciantes",
+    oficio %in% c(16, 17, 15) ~ "Arte y Cultura",
+    oficio %in% c(54, 57, 58) ~ "Servicios Personales",
+    oficio %in% c(98, 97, 36, 37) ~ "Transporte y Logística",
+    oficio %in% c(61, 62, 71) ~ "Agricultura y Minería",
+    oficio %in% c(81, 83, 85, 95) ~ "Oficios Industriales",
+    oficio %in% c(21, 40) ~ "Directivos y Gerentes",
+    TRUE ~ "Otros"
+  ))
+
+# OCCUPIED = FORMAL + INFORMAL. 
+Occupied_description <- db2 %>%
+  group_by(Occupation) %>%
+  summarise(across(c(ocu, formal, informal), sum, na.rm = TRUE)) %>%
+  ungroup() %>%
+ add_row(Occupation = "Total", 
+          ocu = sum(.$ocu), 
+          formal = sum(.$formal), 
+          informal = sum(.$informal)) %>%
+    select(Occupation, ocu, formal, informal) %>%
+  mutate(across(c(ocu, formal, informal), ~ . / last(ocu)*100))
+
+Occupied_description <- Occupied_description[-c(7),]
+
+Occupied_description <- Occupied_description %>%
+  mutate(across(c(ocu, formal, informal), ~ sprintf("%.1f", .x)))
+stargazer(Occupied_description, summary = FALSE, type = "latex", rownames = FALSE,
+          out = "2.1.Occupied_description_table.txt")
+
+#------------ DATA CLEANING PROCESS: EXPLORING INCOME --------------------------
+
+#-------------------OBSERVED vs IMPUTED VARIABLES-------------------------------
+obs_vars <- c("ie",  "impa", "ingtot", "iof1", "iof2", "iof3h", "iof3i", "iof6", "isa")
+imp_vars <- c("iees", "impaes", "ingtotes", "iof1es", "iof2es", "iof3hes", "iof3ies", "iof6es", "isaes")
+titles   <- c("Especie", "Main Activity", "Total","Interes and dividends", "Retirement", "Household Aid", "Institutional Aid", 
+              "Real State", "Second Activity")
+
+# ----> PROOF OF: IMPUTED VARIABLES COVER SOME MISSING VALUES OF OBSERVED VARIABLES
+imp_vars2 <- c("iees", "imdies", "impaes", "iof1es", "iof2es", "iof3hes", "iof3ies", "iof6es", "isaes")
+missing_report <- c("cclasnr4", "cclasnr5", "cclasnr2", "cclasnr6", "cclasnr7", "cclasnr8", "cclasnr8", "cclasnr11", "cclasnr3")
+
+check <- function(db, imp_var, missing_var) {
+  nrow(db2 %>% filter(!is.na(!!sym(imp_var)), !!sym(missing_var) != 1)) == 0} 
+  # MISSING VALUES OF OBSERVED VALUES ARE COVERED BY IMPUTED VALUES? RETURNS TRUE IF CONDITION IS MET
+mapply(function(imp, miss) check(db2, imp, miss), imp_vars2, missing_report); rm(imp_vars2,missing_report)
+
+# ---> FILLING EXTREME MISSING VALUES WITH IMPUTED VALUES
+for(i in seq_along(obs_vars)) {
+  new_name <- paste0(obs_vars[i], "_oi")
+  # Convert NULL to NA
+  imp_val <- if (!is.null(db2[[imp_vars[i]]])) db2[[imp_vars[i]]] else rep(NA, nrow(db2))
+  obs_val <- if (!is.null(db2[[obs_vars[i]]])) db2[[obs_vars[i]]] else rep(NA, nrow(db2))
+  db2[[new_name]] <- ifelse(!is.na(imp_val), imp_val, obs_val)
+}
+
+#-------------- "Y" CONSTRUCTED VARIABLES VS OBSERVES+IMPUTED CORRECTIONS-------
+# -----> CHOOSING BETWEEEN MANUEL'S/ IGNACIO VARIABLES AND OBSERVERD+IMPUTED
+
+#  CORRELATION PLOT
+db_temp <- db2 %>%
+  mutate(
+    Other = ie_oi,
+    `Total Income` = ingtot_oi,
+    `Informal Salary` = ifelse(informal == 1, impa_oi, NA),
+    `Formal Salary` = ifelse(formal == 1, impa_oi, NA),
+    `Domestic Work` = ifelse(p6240 == 4, impa_oi, NA)
+  ) %>%
+  select( Other, `Informal Salary`, `Formal Salary`,`Total Income`,`Domestic Work`,
+          `Y. Others` = y_otros_m,`Y. Informal Salary` = y_gananciaNeta_m,`Y. Formal Salary` = y_ingLab_m,
+          `Y. Total Income` = y_total_m,`Y. Domestic Work` = y_vivienda_m,
+          )
+
+db_temp <- db_temp %>% 
+  mutate_all(~ ifelse(is.na(.) | . == 0, 0, 1))
+db_temp <-  db_temp %>%  select(which(apply(db_temp, 2, sd) > 0))
+
+M <- cor(db_temp, use = "pairwise.complete.obs")
+corrplot(
+  M, method = "color",         # Use colored squares
+  col = colorRampPalette(c("lightgray", "white", "blue"))(200),  
+  tl.col = "black", tl.srt = 90,   tl.cex = 0.8, cl.cex = 0.9,                
+  addCoef.col = "black", number.cex = 0.8,mar = c(2,2,2,2))
+
+# ----> CHOOSING SALARY VARIABLES (WORKING AS FIRST ACTIVITY)
+db_temp <-  db2 %>% filter(p6240 == 1) %>%  select(y_salary_m, impa_oi)
+summary(db_temp)
+sapply(db_temp, function(col) sum(col == 0, na.rm = TRUE)) # Number of 0 values
+sapply(db_temp, function(col) {
+  if (is.numeric(col)) { cut(col, breaks = quantile(col, probs = c(0, 0.25, 0.5, 0.75, 1), na.rm = TRUE), include.lowest = TRUE) %>%
+      table()
+  } else {
+    NA # OBSERVATIONS PER QUANTILE
+  }
+})
+
+# ----> CHOOSING TOTAL INCOME
+TOTAL_INCOME <- data.frame(
+  Metric = c("Mean", "NA Count", "Zero Count", "Q1", "Median", "Q3"),
+  
+  ingtot_oi = sapply(list(
+    function(x) mean(x, na.rm = TRUE), 
+    function(x) sum(is.na(x)), 
+    function(x) sum(x == 0, na.rm = TRUE),
+    function(x) quantile(x, 0.25, na.rm = TRUE), 
+    function(x) median(x, na.rm = TRUE), 
+    function(x) quantile(x, 0.75, na.rm = TRUE)
+  ), function(f) f(db2$ingtot_oi)),
+  
+  y_total_m = sapply(list(
+    function(x) mean(x, na.rm = TRUE), 
+    function(x) sum(is.na(x)), 
+    function(x) sum(x == 0, na.rm = TRUE),
+    function(x) quantile(x, 0.25, na.rm = TRUE), 
+    function(x) median(x, na.rm = TRUE), 
+    function(x) quantile(x, 0.75, na.rm = TRUE)
+  ), function(f) f(db2$y_total_m))
+)
+
+TOTAL_INCOME$Difference <- with(TOTAL_INCOME, ingtot_oi - y_total_m)
+stargazer(TOTAL_INCOME, summary = FALSE, type = "latex",title = "Total Income variables comparison",
+          label = "tab:total_income",out = "2.1 TOTAL INCOME.tex")
+
+#------------------ EXTRA VALIDATION -------------------------------------------
+# ----> CHECKING DISPERSION OF OBSERVED VS IMPUTED 
+Stats <- mapply(function(ob, im, title) {
+  obs <- db2[[ob]]; imp <- db2[[im]]
+  q_obs <- quantile(obs, c(0.05, 0.25, 0.5, 0.75, 0.95), na.rm = TRUE)
+  q_imp <- quantile(imp, c(0.05, 0.25, 0.5, 0.75, 0.95), na.rm = TRUE)
+  
+  data.frame(
+    Statistic = c("Mean", "SD", "NA values", paste0("Quantile_", c(5, 25, 50, 75, 95))),
+    Obs = c(mean(obs, na.rm = TRUE), sd(obs, na.rm = TRUE), sum(is.na(obs)), round(q_obs, 2)),
+    Imp = c(mean(imp, na.rm = TRUE), sd(imp, na.rm = TRUE), sum(is.na(imp)), round(q_imp, 2))
+  ) %>% rename_with(~ paste0(title, "_", sub("^(Obs|Imp)$", "\\1", .x)), Obs:Imp)
+}, obs_vars, imp_vars, titles, SIMPLIFY = FALSE)
+Obs_vs_Imp <- Reduce(function(x, y) merge(x, y, by = "Statistic", sort = FALSE), Stats)
+
+# ---> DIFFERENCES OBSERVED VS IMPUTED
+ cols <- 2:ncol(Obs_vs_Imp)
+ obs_idx <- cols[seq(1, length(cols), by = 2)]
+ imp_idx <- cols[seq(2, length(cols), by = 2)]
+ Differences <- Obs_vs_Imp[, imp_idx] - Obs_vs_Imp[, obs_idx]
+ colnames(Differences) <- titles
+ Differences <- cbind(Statistic = Obs_vs_Imp[, 1], Differences)
+ Differences <- Differences[-c(9),] 
+ stargazer(Differences, summary = FALSE, type = "latex", rownames = FALSE,
+           out = "2.2.Differences Observed vs Imputed.txt")
+
+# ----> OJALÁ SALGA
+# -----> EVALUATING DENSITY OF OBSERVED VS OBSERVED +IMPUTED
+# obs_vars <- c("ie",  "impa", "ingtot", "iof1", "iof6", "isa")
+# obs_imp <- c("ie_oi", "impa_oi", "ingtot_oi", "iof6_oi", "isa_oi")
+# titles   <- c("Especie", "Main Activity", "Total","Interes and dividends","Real State", "Second Activity")
+# 
+# par(mfrow = c(2, 5), oma = c(0, 0, 5, 0))  
+#  for(i in seq_along(obs_vars)) {
+#    # Extract observed and imputado data
+#    data_obs <- db2[[obs_vars[i]]]
+#    data_imp <- db2[[obs_imp[i]]]
+#    q_obs <- quantile(data_obs, probs = c(0.05, 0.95), na.rm = TRUE) # Exclude extreme percentiles
+#    data_obs <- data_obs[data_obs >= q_obs[1] & data_obs <= q_obs[2]] 
+#    q_imp <- quantile(data_imp, probs = c(0.05, 0.95), na.rm = TRUE)
+#    data_imp <- data_imp[data_imp >= q_imp[1] & data_imp <= q_imp[2]]
+#    dens_obs <- density(data_obs, na.rm = TRUE) # Compute density
+#    dens_imp <- density(data_imp, na.rm = TRUE)
+#    
+#    xlim <- range(c(dens_obs$x, dens_imp$x), na.rm = TRUE)
+#    ylim <- range(c(dens_obs$y, dens_imp$y), na.rm = TRUE)
+#    
+#    plot(dens_obs, xlim = xlim, ylim = ylim,
+#         main = titles[i], xlab = "", ylab = "Density",
+#         col = "black", lwd = 2, type = "l")
+#    
+#    lines(dens_imp, col = "red", lwd = 2)
+#  }
+#  
+#  par(fig = c(0, 1, 0.92, 1), new = TRUE)
+#  plot(0, type = "n", axes = FALSE, xlab = "", ylab = "")
+#  legend("center", legend = c("Observed", "Imputed"),
+#         col = c("black", "red"), lty = 1, horiz = TRUE, bty = "n", cex = 0.8)
+
+```
+
+### 2.d) FILLING NA'S & FURTHER ANALYSIS ON VARIABLES
+
+```{r Filling NA's, echo=FALSE, message=FALSE, warning=FALSE}
+# ----------------------DATA STATISTICAL DESCRIPTION ---------------------------
+db2 <- db2 %>% mutate(Sexo = case_when(
+                                sex == 0 ~ "Women",
+                                sex == 1 ~ "Men" ))
+db2 <- db2 %>% mutate(Sexo = case_when(
+                                sex == 0 ~ "Women",
+                                sex == 1 ~ "Men" ))
+
+# ----> SALARY INCOME: SPOTTING % OF NA's to FILL 
+WAGES <- db2 %>%
+  group_by(Occupation, Sexo) %>%
+  summarise(
+    mean_age = mean(age, na.rm = TRUE),
+    Q1_wages = mean(impa_oi[impa_oi <= quantile(impa_oi, 0.25, na.rm = TRUE)], na.rm = TRUE),
+    mean_wages = mean(impa_oi, na.rm = TRUE),
+    Q3_wages = mean(impa_oi[impa_oi >= quantile(impa_oi, 0.75, na.rm = TRUE)], na.rm = TRUE),
+    na_or_zero_percentage_total = sum(is.na(impa_oi) | impa_oi <= 10000) / n() * 100
+  ) %>%
+  ungroup() %>%
+  mutate(across(where(is.numeric), ~ round(.x, 0)))
+
+stargazer(WAGES, type = "latex", summary = FALSE, title = "Wage description by Occupation and Sex",
+          label = "tab:WAGES", out = "2.1 WAGES.tex",
+          digits = 1)
+
+# ------------------------- FILLING NA's VALUES ---------------------------------
+# ---> MAX LEVEL EDU: ONLY 10% MISSING. FILL WITH MODE
+mode_edu <- as.numeric(names(sort(table(db2$maxEducLevel), decreasing = TRUE)[1]))
+db2 <- db2  %>%
+  mutate(maxEducLevel = ifelse(is.na(maxEducLevel) == TRUE, mode_edu , maxEducLevel))
+
+# ----> FILLING SALARY VARIABLE. 
+db2 <- db2 %>% mutate(working = ifelse(p6240 == 1, 1, 0))
+
+db2$maxEducLevel<- factor(db2$maxEducLevel)
+dummy_maxEducLevel <- as.data.frame(model.matrix(~ maxEducLevel - 1, data = db2))
+db2 <- cbind(db2, dummy_maxEducLevel)
+
+lM1 <- lm(impa_oi ~ formal + working + maxEducLevel, data = db2)
+summary(lM1)
+
+# ----> EVALUATING LEVERAGE
+db2$leverage <- NA
+db2$leverage[as.numeric(names(hatvalues(lM1)))] <- hatvalues(lM1)
+
+db2$residuals <- NA
+db2$residuals[as.numeric(names(residuals(lM1)))] <- residuals(lM1)
+
+N <- nrow(db2)
+db2$id<- seq(1 , N)
+
+LEV <- ggplot(db2 , aes(y = leverage , x = id , color= Occupation )) +
+  geom_point() + 
+  theme_bw() + 
+  labs(x = "Observations",  
+       y = "Leverage",
+       title = "")
+
+RES <- ggplot(db2 , aes(y = leverage , x = residuals, color= Occupation )) +
+  geom_point() + # add points
+  theme_bw() + #black and white theme
+  labs(x = "Residuals",  
+       y = "Leverage",
+       title = "") # labels
+
+grid.arrange(LEV, RES, ncol = 2)
+
+# CUTTING HIGH LEVERAGE OBSERVATIONS
+p <- mean(db2$leverage, na.rm = TRUE)
+p
+cutt <- 3*p
+
+db2 <-  db2 %>% 
+  dplyr:: filter(leverage<= cutt)
+
+# RE RUNNING THE MODEL
+lM2 <- lm(impa_oi ~ formal + working + maxEducLevel, data = db2)
+summary(lM2)
+db2$impa_oi_P <- predict(lM2, newdata = db2)
+db2$impa_oi <- ifelse(is.na(db2$impa_oi) | db2$impa_oi == 0, db2$impa_oi_P, db2$impa_oi)
+
+# ----> CHECKING FOR NEGATIVE VALUES
+non_positive_impa_oi <- sum(db2$impa_oi <= 0)
+cat("Number of non-positive values in y_salary_m:", non_positive_impa_oi, "\n")
+
+# ----> CHECKING RESIDUALS
+png("2.3 Residuals removing HIGH LEVERAGE.png", width = 800, height = 600) 
+par(mfrow = c(2, 2))
+plot(lM2)
+dev.off()
+
+rm(db_miss,question, M,Nobs,mode_edu,dummy_maxEducLevel,lM1, Occupied_description,imp_vars,obs_vars,titles,Stats,Obs_vs_Imp, imp_idx,obs_idx,cols, check,lM2,N,WAGES,TOTAL_INCOME,RES,LEV, Differences, db_temp, tables_list, cutt, i, imp_val, new_name, obs_val, p)
+```
+
+
+## 3. Age wage profile
+### 3.1 Running the regression
+
+```{r Age wage Regression, echo=FALSE, warning=FALSE}
+# ------------ RUNNING THE REGRESSION ------------------------------------------
+model_salary <- lm(log(impa_oi) ~ age + I(age^2), data = db2)
+summary(model_salary)
+
+# ------------ EVALUATING RESIDUALS --------------------------------------------
+png("3.1 Salary vs Age.png", width = 800, height = 600) 
+par(mfrow = c(2, 2))
+plot(model_salary)
+dev.off()
+
+# Is age^2 worth it? Yes it is jeje 
+model_salary2 <- lm(log(y_salary_m) ~ age, data = db2)
+anova(model_salary , model_salary2)
+
+# ------------BOOTSTRAPPING RESULTS --------------------------------------------
+set.seed(100)  # For reproducibility
+model_function <- function(data, indices) {
+  sample_data <- data[indices, ]
+  model <- lm(log(impa_oi) ~ age + I(age^2), data = sample_data)
+  return(coef(model)) 
+}
+
+boot_model_salary2 <- boot(db2, model_function, R = 1000)
+
+# BOOTSTRAP STANDAR ERRORS
+boot_se <- apply(boot_model_salary2$t, 2, sd)
+
+# ------------ EXPORTING TO LATEX R --------------------------------------------
+stargazer( model_salary, model_salary,
+           type = "latex",se = list(summary(model_salary)$coefficients[, 2], boot_se), 
+           title = "Monthly Income Salary Relation with Age",
+           covariate.labels = c("Intercept", "Age", "Age Squared"),
+           dep.var.labels = "Labor Monthly Income*",
+           column.labels = c("MCO", "Bootstrap"),
+           star.cutoffs = c(0.1, 0.05, 0.01),
+           ci = TRUE, 
+           ci.level = 0.95,
+           out = "Salary and Age.tex",
+           notes = c("Statistical significance levels: *** p<0.01, ** p<0.05, * p<0.1."),
+           add.lines = list(c("Method", "MCO", "Bootstrap")
+  )
+)
+
+# ------------ BOOTSTRAPPING FOR PEAK AGE --------------------------------------
+peak_age_f <- function(data, indices) {
+  sample_data <- data[indices, ]
+  model <- lm(log(impa_oi) ~ age + I(age^2), data = sample_data)
+  coef_model <- coef(model)
+  peak_age <- -coef_model["age"] / (2 * coef_model["I(age^2)"])
+  return(peak_age)
+}
+
+set.seed(100)
+boot_peak_age <- boot(db2, peak_age_f, R = 1000)
+peak_age_ci <- boot.ci(boot_peak_age, type = "perc")
+print(peak_age_ci)
+
+# ------------ PLOTTING THE AGE-EARNINGS PROFILE -------------------------------
+# ------> FUNCTION FOR PEAK AGE
+peak_age_f <- function(data, indices) {
+  sample_data <- data[indices, ]
+  model <- lm(log(impa_oi) ~ age + I(age^2), data = sample_data)
+  coef_model <- coef(model)
+  peak_age <- -coef_model["age"] / (2 * coef_model["I(age^2)"])
+  return(peak_age)
+}
+
+# ------> BOOTSTRAP
+boot_peak_age <- boot(db2, peak_age_f, R = 1000)
+peak_age_ci <- boot.ci(boot_peak_age, type = "perc")
+original_peak_age <- peak_age_f(db2, 1:nrow(db2))
+
+# ------> PREDICTION:
+# ------> ORGANIZE BY AGES AND PREDICT SALARY
+age_values <- seq(min(db2$age), max(db2$age), by = 1)
+predicted_earnings <- predict(model_salary, newdata = data.frame(age = age_values))
+predicted_earnings_P <- data.frame(age = age_values, log_salary = predicted_earnings, salary = exp(predicted_earnings))
+
+PEAK_AGE <- ggplot(predicted_earnings_P, aes(x = age, y = log_salary)) +
+  geom_line(color = "#1f77b4", size = 1.2, linetype = "solid") +
+  geom_vline(xintercept = original_peak_age, color = "blue", linetype = "longdash", size = 1) +
+  geom_vline(xintercept = peak_age_ci$percent[4], color = "gray", linetype = "dashed", size = 1) +
+  geom_vline(xintercept = peak_age_ci$percent[5], color = "gray", linetype = "dashed", size = 1) +
+  labs(
+    x = "Age",
+    y = "Log(Monthly Income Salary)",
+    subtitle = paste("Peak Age:", round(original_peak_age, 2), 
+                     "95% CI [", 
+                     round(peak_age_ci$percent[4], 2), ",", 
+                     round(peak_age_ci$percent[5], 2), "]")
+  ) +
+  theme_minimal(base_size = 18) +  # Increase base font size
+  theme(
+    plot.title = element_text(face = "bold", size = 20, hjust = 0.5),
+    plot.subtitle = element_text(size = 18, hjust = 0.5, color = "gray40"),
+    axis.title = element_text(size = 18),
+    axis.text = element_text(size = 16),
+    panel.grid.major = element_line(color = "gray85"),
+    panel.grid.minor = element_line(color = "gray90")
+  ) 
+ggsave("3.1PEAKAGE.png", plot = PEAK_AGE, width = 10, height = 7)
+rm(model_salary, peak_age_ci, original_peak_age,age_values,predicted_earnings_P,PEAK_AGE)
+```
+
+## 4. The gender earnings GAP
+```{r Unconditional Gender Wage Gap}
+
+# We are transforming the 'sex' variable to create a new 'Female' indicator where
+#female = 1 for females (sex = 0) and Female = 0 for males (sex = 1) (According to data dictionary)
+db2 <- db2 %>%
+  mutate(female = ifelse(sex == 0, 1, 0)) 
+head(db2)
+
+model_unconditional <- lm(log(impa_oi) ~ female, data = db2)
+summary(model_unconditional)
+
+#  GAUSS MARCOV THEOREM 
+check_model(model_unconditional)
+#  Linearity Check:
+ggplot(data = data.frame(Fitted = fitted(model_unconditional), Residuals = residuals(model_unconditional)), 
+       aes(x = Fitted, y = Residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Residuals vs Fitted Values", x = "Fitted Values", y = "Residuals")
+
+# Exogeneity: Mean of residuals should be zero
+mean_residuals_1<-mean(residuals(model_unconditional))
+
+# Homoscedasticity: Breusch-Pagan Test
+bp_test_1<-bptest(model_unconditional)  #P-value < 0.05 suggests rejecting the null hypothesis
+
+# No Autocorrelation: Durbin-Watson Test
+dw_test_1<-dwtest(model_unconditional) # P-value < 0.05 suggests rejecting the null hypothesis
+
+robust_se_1 <- coeftest(model_unconditional, vcov = vcovHC(model_unconditional, type = "HC3"))
+print(robust_se_1)
+
+```
+The unconditional model provides clear evidence of a gender wage gap, with females earning significantly less than males on average, as indicated by the highly statistically significant coefficient for the gender variable female. This suggests that gender plays a significant role in explaining variations in log-transformed salaries, highlighting potential gender disparities in earnings,however, the statistical significance of the model must be interpreted with caution due to violations of key assumptions: The extremely low p-values from the Breusch-Pagan test for heteroscedasticity and the Durbin-Watson test for autocorrelation reveal strong evidence against the null hypotheses, indicating issues with homoscedasticity and the independence of errors. These violations imply that traditional inference methods may be flawed, potentially affecting the reliability of the standard errors and p-values. To draw more robust conclusions, we proceed with estimating a conditional model that includes control variables and addresses the issues of heteroscedasticity and autocorrelation. 
+
+```{r Conditional Gender Wage Gap}
+
+# Conditional Gender Wage Gap (OLS)
+conditional_model <- lm(log(impa_oi) ~ female + age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1), data = db2)
+summary(conditional_model)
+
+check_model(conditional_model)
+#robust standard errors 
+robust_se_2 <- coeftest(conditional_model, vcov = vcovHC(conditional_model, type = "HC3"))
+print(robust_se_2)
+# ------------------------ FRISCH-WAUGH-LOVELL THEOREM--------------------------------
+#Estimation with FWL to isolate the effect of female on log(salary) by partialling out the control variables. 
+# Fit the control model (without female)
+controls <- lm(log(impa_oi) ~  age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1), data = db2)
+log_income <- residuals(controls)
+
+gender <- lm(female ~ age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1), data = db2)
+female<- residuals(gender)
+
+#The effect of female using the residuals
+fwl_model_1 <- lm(log_income ~ female)
+summary_fwl <- summary(fwl_model_1)  
+summary_fwl
+
+#  GAUSS MARCOV THEOREM 
+qqnorm(residuals(fwl_model_1))
+check_model(fwl_model_1)
+
+# 1. Linearity Check: Residual vs Fitted Plot
+ggplot(data = data.frame(Fitted = fitted(model_unconditional), Residuals = residuals(fwl_model_1)), 
+       aes(x = Fitted, y = Residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Residuals vs Fitted Values", x = "Fitted Values", y = "Residuals")
+
+# 2. Exogeneity: Mean of residuals should be zero
+mean_residuals_2<-mean(residuals(fwl_model_1)) # Mean is aprox. 0 supporting the assumption of exogeneity
+
+# 3. Homoscedasticity: Breusch-Pagan Test
+bp_test_2<-bptest(fwl_model_1)  #P-value > 0.05 suggests no strong evidence of heteroscedasticity in the residuals
+
+# 4. No Autocorrelation: Durbin-Watson Test
+dw_test_2<-dwtest(fwl_model_1) # #P-value < 0.05 suggests rejecting the null hypothesis
+
+# 5. Multicollinearity
+vif_values <- vif(conditional_model)
+vif_values #Multicollinearity is moderate to high for age and I(age^2) (GVIF^(1/(2*Df)) > 5), which is expected because I(age^2) is a transformation of age. The other variables do not exhibit multicollinearity.
+
+# ------------------------ FWL WITH BOOTSTRAP ----------------------------------------
+fwl_bootstrap <- function(data, indices) {
+  boot_data <- data[indices, ]
+  
+  controls_boot <- lm(log(impa_oi) ~ age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1), data = boot_data)
+  log_income_boot <- residuals(controls_boot)
+  
+  gender_boot <- lm(female ~ age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1), data = boot_data)
+  female_boot <- residuals(gender_boot)
+  
+  fwl_model_boot <- lm(log_income_boot ~ female_boot)
+  
+  return(coef(fwl_model_boot)["female_boot"])
+}
+
+set.seed(1010) 
+fwl_boot_results <- boot(data = db2, statistic = fwl_bootstrap, R = 1000)
+
+boot_estimates <- fwl_boot_results$t
+boot_se <- sd(boot_estimates)
+boot_mean <- mean(boot_estimates)
+
+# Dummy model with the bootstrap results
+bootstrap_model <- lm(log(impa_oi) ~ female, data = db2)  
+bootstrap_model$coefficients <- c("(Intercept)" = 0, "female" = boot_mean)
+bootstrap_model$residuals <- rnorm(nrow(db2))  
+bootstrap_model$fitted.values <- rnorm(nrow(db2))  
+bootstrap_model$rank <- 2  
+bootstrap_model$df.residual <- nrow(db2) - 2  
+bootstrap_model$se <- c("(Intercept)" = 0, "female" = boot_se)
+
+
+#Export to latex
+stargazer(
+  model_unconditional, conditional_model, fwl_model_1, bootstrap_model,
+  title = "Comparison of Unconditional and Conditional Gender Wage Gaps",
+  type = "latex",
+  align = TRUE,
+  out = "gender_wage_gap_comparison.html",
+  covariate.labels = c("Female"), # Solo mostramos la etiqueta para "Female"
+  dep.var.labels.include = FALSE, # No incluir el nombre de la variable dependiente
+  keep = c("female"), # Solo mantenemos "female"
+  no.space = TRUE,
+  add.lines = list(
+    c("Method", "Unconditional", "Conditional OLS", "FWL", "Bootstrap"),
+    c("Observations", nobs(model_unconditional), nobs(conditional_model), nobs(fwl_model_1), nrow(db2))
+  ),
+  notes = " Control variables for models 2, 3, and 4 include: age, maxEducLevel, informal, and estrato1."
+)
+
+```
+
+```{r Peak ages}
+# ------------------------ THE PREDICTED AGE-WAGE PROFILE  ----------------------------------------
+# Split the data by gender and run separate models
+female_data <- db2 %>% filter(female == 1)
+male_data <- db2 %>% filter(female == 0)
+
+# Estimate wage models by gender
+female_model <- lm(log(impa_oi) ~ age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1), 
+                  data = female_data)
+male_model <- lm(log(impa_oi) ~ age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1), 
+                data = male_data)
+
+# Sequence of ages 
+age_seq <- seq(min(db2$age), max(db2$age), by = 0.5)
+
+# For factor variables, we need to use the most common level
+female_most_common_educ <- as.numeric(names(sort(table(female_data$maxEducLevel), decreasing = TRUE)[1]))
+male_most_common_educ <- as.numeric(names(sort(table(male_data$maxEducLevel), decreasing = TRUE)[1]))
+female_most_common_estrato <- as.numeric(names(sort(table(female_data$estrato1), decreasing = TRUE)[1]))
+male_most_common_estrato <- as.numeric(names(sort(table(male_data$estrato1), decreasing = TRUE)[1]))
+
+# Create prediction data frames for each gender
+female_pred_data <- data.frame(
+  age = age_seq,
+  maxEducLevel = female_most_common_educ,
+  informal = mean(female_data$informal, na.rm = TRUE),
+  estrato1 = female_most_common_estrato
+)
+
+male_pred_data <- data.frame(
+  age = age_seq,
+  maxEducLevel = male_most_common_educ,
+  informal = mean(male_data$informal, na.rm = TRUE),
+  estrato1 = male_most_common_estrato
+)
+
+# Make predictions (log wages)
+female_predictions <- predict(female_model, newdata = female_pred_data, se.fit = TRUE)
+male_predictions <- predict(male_model, newdata = male_pred_data, se.fit = TRUE)
+
+# Create data frames for plotting
+# Back-transform log wages to actual wages
+female_plot_data <- data.frame(
+  age = age_seq,
+  fit_log = female_predictions$fit,
+  fit = exp(female_predictions$fit),  # Back-transform to actual wages
+  lower = exp(female_predictions$fit - 1.96 * female_predictions$se.fit),  # Back-transform lower CI
+  upper = exp(female_predictions$fit + 1.96 * female_predictions$se.fit),  # Back-transform upper CI
+  gender = "Female"
+)
+
+male_plot_data <- data.frame(
+  age = age_seq,
+  fit_log = male_predictions$fit,
+  fit = exp(male_predictions$fit),  # Back-transform to actual wages
+  lower = exp(male_predictions$fit - 1.96 * male_predictions$se.fit),  # Back-transform lower CI
+  upper = exp(male_predictions$fit + 1.96 * male_predictions$se.fit),  # Back-transform upper CI
+  gender = "Male"
+)
+
+# Combine data for plotting
+plot_data <- rbind(female_plot_data, male_plot_data)
+
+# ------------------------ PEAK AGE-WAGE BY GENDER  ----------------------------------------
+# The peak age is where the derivative of the wage function with respect to age equals zero
+# For the model log(wage) = β₀ + β₁*age + β₂*age² + ..., the peak age is -β₁/(2*β₂)
+
+# For females
+female_age_coef <- coef(female_model)["age"]
+female_age2_coef <- coef(female_model)["I(age^2)"]
+female_peak_age <- -female_age_coef / (2 * female_age2_coef)
+
+# For males
+male_age_coef <- coef(male_model)["age"]
+male_age2_coef <- coef(male_model)["I(age^2)"]
+male_peak_age <- -male_age_coef / (2 * male_age2_coef)
+
+calculate_peak_age_se <- function(model) {
+  # Extract coefficients
+  b1 <- coef(model)["age"]
+  b2 <- coef(model)["I(age^2)"]
+  vcov_matrix <- vcov(model)
+  var_b1 <- vcov_matrix["age", "age"]
+  var_b2 <- vcov_matrix["I(age^2)", "I(age^2)"]
+  cov_b1b2 <- vcov_matrix["age", "I(age^2)"]
+  grad <- c(-1/(2*b2), b1/(2*b2^2))
+  sub_vcov <- matrix(c(var_b1, cov_b1b2, cov_b1b2, var_b2), nrow = 2)
+  var_peak_age <- t(grad) %*% sub_vcov %*% grad
+  return(sqrt(as.numeric(var_peak_age)))
+}
+
+# Standard errors
+female_peak_age_se <- calculate_peak_age_se(female_model)
+male_peak_age_se <- calculate_peak_age_se(male_model)
+
+# 95% confidence intervals
+female_peak_age_ci <- c(female_peak_age - 1.96 * female_peak_age_se, 
+                         female_peak_age + 1.96 * female_peak_age_se)
+male_peak_age_ci <- c(male_peak_age - 1.96 * male_peak_age_se, 
+                       male_peak_age + 1.96 * male_peak_age_se)
+
+# Data frame
+peak_ages <- data.frame(
+  Gender = c("Female", "Male"),
+  Peak_Age = c(female_peak_age, male_peak_age),
+  SE = c(female_peak_age_se, male_peak_age_se),
+  CI_Lower = c(female_peak_age_ci[1], male_peak_age_ci[1]),
+  CI_Upper = c(female_peak_age_ci[2], male_peak_age_ci[2])
+)
+
+# Get the predicted wages at peak ages
+female_peak_wage_data <- data.frame(
+  age = female_peak_age,
+  maxEducLevel = female_most_common_educ,
+  informal = mean(female_data$informal, na.rm = TRUE),
+  estrato1 = female_most_common_estrato
+)
+
+male_peak_wage_data <- data.frame(
+  age = male_peak_age,
+  maxEducLevel = male_most_common_educ,
+  informal = mean(male_data$informal, na.rm = TRUE),
+  estrato1 = male_most_common_estrato
+)
+
+female_peak_wage <- exp(predict(female_model, newdata = female_peak_wage_data))
+male_peak_wage <- exp(predict(male_model, newdata = male_peak_wage_data))
+
+# The plot including peak ages with back-transformed wages
+grap<- ggplot(plot_data, aes(x = age, y = fit, color = gender, fill = gender)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+  geom_vline(xintercept = female_peak_age, color = "darkred", linetype = "dashed") +
+  geom_vline(xintercept = male_peak_age, color = "darkblue", linetype = "dashed") +
+  annotate("text", x = female_peak_age + 2, y = max(plot_data$fit) * 0.9, 
+           label = paste("Female Peak Age:", round(female_peak_age, 1)), color = "darkred", size = 6) +
+  annotate("text", x = male_peak_age + 2, y = max(plot_data$fit) * 0.8, 
+           label = paste("Male Peak Age:", round(male_peak_age, 1)), color = "darkblue", size = 6) +
+  labs(
+    subtitle = "Dashed lines indicate estimated peak ages",
+    x = "Age",
+    y = "Predicted Wage",
+    color = "Gender",
+    fill = "Gender"
+  ) +
+  theme_minimal() +
+  scale_color_manual(values = c("Female" = "darkred", "Male" = "darkblue")) +
+  scale_fill_manual(values = c("Female" = "darkred", "Male" = "darkblue")) +
+  scale_y_continuous(labels = scales::comma) +
+  theme(
+    plot.subtitle = element_text(size = 25),
+    axis.title.x = element_text(size = 25),
+    axis.title.y = element_text(size = 25),
+    axis.text = element_text(size = 25),
+    legend.title = element_text(size = 25),
+    legend.text = element_text(size = 25)
+  )
+
+ggsave("age_wage_profile.png", plot = grap, width = 20, height = 10)
+# Create a table with peak ages and peak wages
+peak_summary <- data.frame(
+  Gender = c("Female", "Male"),
+  Peak_Age = c(round(female_peak_age, 2), round(male_peak_age, 2)),
+  Peak_Age_CI_Lower = c(round(female_peak_age_ci[1], 2), round(male_peak_age_ci[1], 2)),
+  Peak_Age_CI_Upper = c(round(female_peak_age_ci[2], 2), round(male_peak_age_ci[2], 2)),
+  Peak_Wage = c(round(female_peak_wage, 2), round(male_peak_wage, 2))
+)
+print(peak_summary)
+```
+
+## 5. Predicting earnings
+
+Split the sample into two: a training (70%) and a testing (30%) sample. (Don’t
+forget to set a seed to achieve reproducibility. In R, for example you can use
+set.seed(10101), where 10101 is the seed.)
+
+```{r}
+set.seed(1541)
+
+in_train = createDataPartition(y = db2$impa_oi, 
+                               p = 0.7, 
+                               list = FALSE)
+training = db2 %>% 
+  filter(row_number() %in% in_train)
+
+test = db2 %>% 
+  filter(!row_number() %in% in_train)
+
+
+for (var in c("maxEducLevel", "estrato1", "oficio2")) {
+  training[[var]] <- as.factor(training[[var]])
+  test[[var]] <- factor(test[[var]], levels = levels(training[[var]]))
+}
+
+```
+
+Report and compare the predictive performance in terms of the RMSE of all
+the previous specifications with at least five (5) additional specifications that
+explore non-linearities and complexity.
+
+```{r}
+
+# Previous specifications
+formula_1 = formula(log(impa_oi) ~ age + I(age^2))
+formula_2 = formula(log(impa_oi) ~ female)
+formula_3 = formula(log(impa_oi) ~ female + age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1))
+
+# 5 additional specifications
+
+formula_4 = formula(log(impa_oi) ~ female + age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1) + factor(oficio2))
+
+formula_5 = formula(log(impa_oi) ~ female * factor(maxEducLevel) + age + I(age^2) + informal + factor(estrato1) + factor(oficio2))
+
+formula_6 = formula(log(impa_oi) ~ female * factor(maxEducLevel) + poly(age, 3) + informal * factor(maxEducLevel) + factor(estrato1) + factor(oficio2))
+
+formula_7 = formula(log(impa_oi) ~ female * factor(maxEducLevel) + poly(age, 3) + informal * factor(maxEducLevel) + factor(estrato1) * factor(maxEducLevel) + factor(oficio2))
+
+formula_8 = formula(log(impa_oi) ~ female * factor(maxEducLevel) * factor(estrato1) + poly(age, 3) + informal * factor(maxEducLevel) + factor(oficio2))
+
+```
+
+Calculate the predictive performance 
+
+```{r}
+
+formulas = list(formula_1, formula_2, formula_3, formula_4, 
+                formula_5, formula_6, formula_7, formula_8)
+
+models = map(formulas, ~lm(.x, data = training, weights = fex_c))
+
+evaluate_model = function(model) {
+  
+  prediction = predict(model, newdata = test)
+  
+  result = list("RMSE" = RMSE(pred = exp(prediction), obs = test$impa_oi),
+                "MAE" = MAE(pred = exp(prediction), obs = test$impa_oi),
+                "MAPE" = mean(abs((test$impa_oi - exp(prediction)) / test$impa_oi))*100, 
+                "R2" = 1 - sum((test$impa_oi - exp(prediction))^2) / sum((test$impa_oi - mean(test$impa_oi))^2),
+                "R2_log" = 1 - sum((log(test$impa_oi) - prediction)^2) / sum((log(test$impa_oi) - mean(log(test$impa_oi)))^2),
+                "Prediction" = exp(prediction),
+                "Resid" = test$impa_oi-exp(prediction))
+  return(result)
+}
+
+result = map(models, evaluate_model)
+rmse = map_dbl(result, "RMSE")
+
+```
+
+For the specification with the lowest prediction error, explore those observations that seem to ”miss the mark.” To do so, compute the prediction errors
+in the test sample, and examine its distribution. Are there any observations
+in the tails of the prediction error distribution? Are these outliers potential
+people that the DIAN should look into, or are they just the product of a
+flawed model?
+
+```{r}
+
+# Assessing best model performance
+
+check_mod_8 = check_model(models[[8]])
+
+residuals = data.frame("resid_8" = result[[8]]$Resid)
+
+# Standardized residuals
+
+residuals = residuals |> 
+  mutate(resid_8_std = scale(resid_8))
+
+p_1 = ggplot(residuals, aes(x = resid_8_std)) +
+  geom_histogram(bins = 800, fill = "purple", alpha = 0.5, ) +
+  geom_vline(xintercept = c(-2, 2), linetype = "dashed", color = "red") +
+  theme_minimal() +
+  labs(title = "Distribution of Standardized Residuals (Model 8)", 
+       subtitle = "±2σ intervals", 
+       x = "Standardized Residual", y = "Count")
+
+ggsave(plot = p_1, filename = "Distribution_residuals.jpg", width = 10, height = 7)
+
+```
+
+Analysis of outliers
+
+```{r}
+
+low_8 = quantile(residuals$resid_8, 0.05)
+up_8 = quantile(residuals$resid_8, 0.95)
+
+data = test |> 
+  select(impa_oi, female, age, y_total_m, oficio2, oficio, estrato1, informal, maxEducLevel, ingtot) |> 
+  mutate(pred_8 = result[[8]][["Prediction"]],
+         resid_8_std = residuals$resid_8_std)
+
+out_8 = data |> filter(resid_8_std > 2 | resid_8_std < -2) |> 
+  arrange(resid_8_std)
+
+p_2 = ggplot(data, aes(x = pred_8, y = resid_8_std, color = abs(resid_8_std))) +
+  geom_point(alpha = 0.7) +
+  geom_hline(yintercept = c(-2, 2), linetype = "dashed", color = "red") +
+  scale_color_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  labs(title = "Outlier prediction (Model 8)",
+       x = "Fitted Values",
+       y = "Standardized Residuals",
+       color = "Outlier magnitude") +
+  theme(legend.text = element_text(size = 8),  
+        legend.title = element_text(size = 9, hjust = 0.5), 
+        legend.key.size = unit(0.5, "cm"))  
+
+ggsave(plot = p_2, filename = "resid_vs_fitted.jpg", width = 10, height = 7)
+
+p_3 = ggplot(data, aes(x = as.factor(oficio2), y = resid_8_std)) +
+  geom_boxplot() +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Outliers by ocupation",
+       x = "Occupation",
+       y = "Standardized residuals")
+
+ggsave(plot = p_3, filename = "out_by_ocup.jpg", width = 10, height = 7)
+
+```
+LOOCV. For the two models with the lowest predictive error in the previous section, calculate the predictive error using Leave-one-out-cross-validation
+(LOOCV). Compare the results of the test error with those obtained with the
+validation set approach and explore the potential links with the influence statistic. (Note: when attempting this subsection, the calculations can take a long time, depending on your coding skills, plan accordingly!)
+
+Paralellization:
+
+```{r}
+# Definir trainControl antes del cluster
+ctrl_par <- trainControl(method = "LOOCV", verboseIter = TRUE, allowParallel = TRUE)
+
+# Configurar paralelización
+cl <- makeCluster(detectCores() - 1)
+registerDoParallel(cl)
+
+# Exportar variables necesarias a los workers
+clusterExport(cl, c("ctrl_par", "db2", "formula_7", "formula_8"))
+
+# Entrenar modelos en paralelo
+time_models <- system.time({
+  results <- foreach(formula = list(formula_7, formula_8), .packages = "caret") %dopar% {
+    train(formula, data = db2, method = "lm", trControl = ctrl_par)
+  }
+})
+
+# Finalizar cluster
+stopCluster(cl)
+registerDoSEQ()
+
+# Guardar modelos
+mod_par7 <- results[[1]]
+mod_par8 <- results[[2]]
+
+print(paste("Tiempo paralelo:", time_models["elapsed"], "segundos"))
+
+```
+
+
+```{r}
+
+# Defining control 
+ctrl_par <- trainControl(method = "LOOCV", verboseIter = TRUE, allowParallel = TRUE)
+
+# Defining parallel clusters
+cl <- makeCluster(detectCores() - 1) 
+registerDoParallel(cl)
+  
+train_parallel <- function(formula) {
+  
+  model <- train(formula, data = db2, method = 'lm', trControl = ctrl_par)
+  
+  return(model)
+}
+
+time_par7 <- system.time(mod_par7 <- train_parallel(formula_7))
+time_par8 <- system.time(mod_par8 <- train_parallel(formula_8))
+
+stopCluster(cl)  
+registerDoSEQ()  
+
+print(paste("Tiempo paralelo:", time_par7["elapsed"], "segundos"))
+print(paste("Tiempo paralelo:", time_par8["elapsed"], "segundos"))
+
+# mod_par7$results
+# mod_par8$results
+
+```
+
+Parallelization with furrr
+
+```{r}
+
+plan(multisession, workers = parallel::detectCores() - 1)
+
+loocv_model = function(i, data, model_formula) {
+  train_data = data[-i, ]
+  test_data = data[i, , drop = FALSE]
+
+  modelo = lm(model_formula, data = train_data, weights = fex_c)  # Ajustar modelo
+  prediction = predict(modelo, newdata = test_data)  # Predecir
+  rmse = RMSE(pred = exp(prediction), obs = test_data$impa_oi)  # Error cuadrático
+
+  return(rmse)
+}
+
+time_furr7 <- system.time(rmse_mod7 <- future_map_dbl(1:nrow(db2), ~ loocv_model(.x, db2, formula_7)))
+
+time_furr8 <- system.time(rmse_mod8 <- future_map_dbl(1:nrow(db2), ~ loocv_model(.x, db2, formula_8)))
+
+plan(sequential)
+
+mean(rmse_mod7) #751683.2
+mean(rmse_mod8) #752138.2
+
+print(paste("Tiempo paralelo:", time_furr7["elapsed"], "segundos"))
+print(paste("Tiempo paralelo:", time_furr8["elapsed"], "segundos"))
+
+```
+
+
