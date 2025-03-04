@@ -13,27 +13,29 @@ gc(rm(list = ls()))
 knitr::opts_chunk$set(echo = TRUE)
 require(pacman)
 p_load(
-  stringr,    # HTML to text  
-  tidyverse,  # Tidy data  
-  skimr,      # Data summary  
-  rvest,      # Web scraping  
-  dplyr,      # Table management  
-  corrplot,   # Correlation plot  
-  reshape2,   # Long table format  
-  stargazer,  # LaTeX tables  
-  gridExtra,  # Multiple graphs  
-  furrr,      # Parallel processing  
-  mosaic,     # Bootstrap  
-  boot,       # Resampling  
-  car,        # Regression tools  
-  lmtest,     # Regression tests  
-  caret,      # Machine learning  
-  sandwich,   # Robust SEs  
-  performance,# Model quality  
-  doParallel, # Parallel computing  
-  future,     # Async processing  
-  microbenchmark # Performance test  
+  stringr,        # HTML to text  
+  tidyverse,      # Tidy data  
+  skimr,          # Data summary  
+  rvest,          # Web scraping  
+  dplyr,          # Table management  
+  corrplot,       # Correlation plot  
+  reshape2,       # Long table format  
+  stargazer,      # LaTeX tables  
+  gridExtra,      # Multiple graphs  
+  furrr,          # Parallel processing  
+  mosaic,         # Bootstrap  
+  boot,           # Resampling  
+  car,            # Regression tools  
+  lmtest,         # Regression tests  
+  caret,          # Machine learning  
+  sandwich,       # Robust SEs  
+  performance,    # Model quality  
+  doParallel,     # Parallel computing  
+  future,         # Async processing  
+  microbenchmark, # Performance test  
+  foreach         # Iterative processing
 )
+
 
 ```
 
@@ -1000,6 +1002,37 @@ validation set approach and explore the potential links with the influence stati
 Paralellization:
 
 ```{r}
+# Definir trainControl antes del cluster
+ctrl_par <- trainControl(method = "LOOCV", verboseIter = TRUE, allowParallel = TRUE)
+
+# Configurar paralelización
+cl <- makeCluster(detectCores() - 1)
+registerDoParallel(cl)
+
+# Exportar variables necesarias a los workers
+clusterExport(cl, c("ctrl_par", "db2", "formula_7", "formula_8"))
+
+# Entrenar modelos en paralelo
+time_models <- system.time({
+  results <- foreach(formula = list(formula_7, formula_8), .packages = "caret") %dopar% {
+    train(formula, data = db2, method = "lm", trControl = ctrl_par)
+  }
+})
+
+# Finalizar cluster
+stopCluster(cl)
+registerDoSEQ()
+
+# Guardar modelos
+mod_par7 <- results[[1]]
+mod_par8 <- results[[2]]
+
+print(paste("Tiempo paralelo:", time_models["elapsed"], "segundos"))
+
+```
+
+
+```{r}
 
 # Defining control 
 ctrl_par <- trainControl(method = "LOOCV", verboseIter = TRUE, allowParallel = TRUE)
@@ -1041,7 +1074,7 @@ loocv_model = function(i, data, model_formula) {
 
   modelo = lm(model_formula, data = train_data, weights = fex_c)  # Ajustar modelo
   prediction = predict(modelo, newdata = test_data)  # Predecir
-  rmse = RMSE(pred = prediction, obs = log(test_data$impa_oi))  # Error cuadrático
+  rmse = RMSE(pred = exp(prediction), obs = test_data$impa_oi)  # Error cuadrático
 
   return(rmse)
 }
@@ -1052,57 +1085,12 @@ time_furr8 <- system.time(rmse_mod8 <- future_map_dbl(1:nrow(db2), ~ loocv_model
 
 plan(sequential)
 
-mean(rmse_mod7)
-mean(rmse_mod8)
+mean(rmse_mod7) #751683.2
+mean(rmse_mod8) #752138.2
 
 print(paste("Tiempo paralelo:", time_furr7["elapsed"], "segundos"))
 print(paste("Tiempo paralelo:", time_furr8["elapsed"], "segundos"))
 
 ```
-
-
-```{r}
-comparison <- data.frame(
-  Model = c("Model 7", "Model 8"),
-  LOOCV_RMSE = c(mean(rmse_mod7), mean(rmse_mod8)),
-  Validation_RMSE = c(rmse[7], rmse[8])
-)
-print(comparison)
-```
-
-Leverage statistic
-```{r}
-## RUN THE MODEL WITH ALL OBS
-
-full_model <- lm(formula_3, db2, weights = fex_c)
-
-X <- model.matrix(full_model)
-y <- model.response(model.frame(full_model))
-
-beta_hat <- full_model$coefficients
-  
-## Calculate the inverse of  (X'X), call it G_inv
-G_inv <- solve(t(X)%*%X)
-
-## and 1/1-hi
-vec<- 1/(1-hatvalues(full_model))
-  
-N <- nrow(X)  # Number of observations
-LOO <- numeric(N)  # To store the errors
-
-  # Loop over each observation
-for (i in 1:N) {
-  # get the new beta
-  new_beta<- beta_hat  - vec[i] * G_inv %*% as.vector(X[i, ]) *      full_model$residuals[i]
-    ## get the new error
-    new_error <- (y[i]- (X[i, ] %*% new_beta))^2
-    LOO[i]<-  new_error
-  }
-  
-looCV_error <- mean(LOO)
-sqrt(looCV_error)
-
-```
-
 
 
