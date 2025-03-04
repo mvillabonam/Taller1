@@ -310,7 +310,7 @@ Obs_vs_Imp <- Reduce(function(x, y) merge(x, y, by = "Statistic", sort = FALSE),
 
 ```
 
-### 2.d) FILLING NA'S
+### 2.d) FILLING NA'S & FURTHER ANALYSIS ON VARIABLES
 
 ```{r Filling NA's, echo=FALSE, message=FALSE, warning=FALSE}
 # ----------------------DATA STATISTICAL DESCRIPTION ---------------------------
@@ -428,20 +428,6 @@ anova(model_salary , model_salary2)
 
 # ------------BOOTSTRAPPING RESULTS --------------------------------------------
 set.seed(100)  # For reproducibility
-boot_model_salary = do(10000)*lm(log(impa_oi) ~ age + I(age^2),data=mosaic::resample(db2))
-
-boot_summary <- boot_model_salary %>%
-  summarise(
-    age = mean(age),
-    age_se = sd(age),
-    age_lower = quantile(age, 0.025),
-    age_upper = quantile(age, 0.975),
-    age2 = mean(I(age^2)),
-    age2_se = sd(I(age^2)),
-    age2_lower = quantile(I(age^2), 0.025),
-    age2_upper = quantile(I(age^2), 0.975)
-  )
-
 model_function <- function(data, indices) {
   sample_data <- data[indices, ]
   model <- lm(log(impa_oi) ~ age + I(age^2), data = sample_data)
@@ -480,12 +466,11 @@ peak_age_f <- function(data, indices) {
 
 set.seed(100)
 boot_peak_age <- boot(db2, peak_age_f, R = 1000)
-# Calculate confidence intervals for the peak age
 peak_age_ci <- boot.ci(boot_peak_age, type = "perc")
 print(peak_age_ci)
 
-# ------------ PLOTTING THE AGE-EARNINGS PROFILE --------------------------
-# Define a single function to fit the model and calculate peak age
+# ------------ PLOTTING THE AGE-EARNINGS PROFILE -------------------------------
+# ------> FUNCTION FOR PEAK AGE
 peak_age_f <- function(data, indices) {
   sample_data <- data[indices, ]
   model <- lm(log(impa_oi) ~ age + I(age^2), data = sample_data)
@@ -494,46 +479,41 @@ peak_age_f <- function(data, indices) {
   return(peak_age)
 }
 
-# Run the bootstrap with 1000 samples
-set.seed(100)
+# ------> BOOTSTRAP
 boot_peak_age <- boot(db2, peak_age_f, R = 1000)
-
-# Calculate confidence intervals for the peak age
 peak_age_ci <- boot.ci(boot_peak_age, type = "perc")
-print(peak_age_ci)
-
-# Calculate the original peak age using the full dataset
 original_peak_age <- peak_age_f(db2, 1:nrow(db2))
 
-cat("Original Peak Age:", round(original_peak_age, 2), "\n")
-cat("95% Bootstrap CI for Peak Age:", 
-    round(peak_age_ci$percent[4], 2), "to", 
-    round(peak_age_ci$percent[5], 2), "\n")
-
-# Fit the quadratic model
-model_salary <- lm(log(impa_oi) ~ age + I(age^2), data = db2)
-
-# Create a data frame for prediction
+# ------> PREDICTION:
+# ------> ORGANIZE BY AGES AND PREDICT SALARY
 age_values <- seq(min(db2$age), max(db2$age), by = 1)
 predicted_earnings <- predict(model_salary, newdata = data.frame(age = age_values))
+predicted_earnings_P <- data.frame(age = age_values, log_salary = predicted_earnings, salary = exp(predicted_earnings))
 
-# Create a data frame for ggplot
-plot_data <- data.frame(age = age_values, log_salary = predicted_earnings)
-
-# Plot the age-earnings profile with the peak age and its confidence interval
-ggplot(plot_data, aes(x = age, y = log_salary)) +
-  geom_line(color = "blue", size = 1) +
-  geom_vline(xintercept = original_peak_age, color = "red", linetype = "dashed") +
-  geom_vline(xintercept = peak_age_ci$percent[4], color = "green", linetype = "dotted") +
-  geom_vline(xintercept = peak_age_ci$percent[5], color = "green", linetype = "dotted") +
-  labs(title = "Estimated Age-Earnings Profile",
-       x = "Age",
-       y = "Log(Monthly Income Salary)",
-       subtitle = paste("Peak Age:", round(original_peak_age, 2), 
-                        "95% CI [", 
-                        round(peak_age_ci$percent[4], 2), ",", 
-                        round(peak_age_ci$percent[5], 2), "]")) +
-  theme_minimal()
+PEAK_AGE <- ggplot(predicted_earnings_P, aes(x = age, y = log_salary)) +
+  geom_line(color = "#1f77b4", size = 1.2, linetype = "solid") +
+  geom_vline(xintercept = original_peak_age, color = "blue", linetype = "longdash", size = 1) +
+  geom_vline(xintercept = peak_age_ci$percent[4], color = "gray", linetype = "dashed", size = 1) +
+  geom_vline(xintercept = peak_age_ci$percent[5], color = "gray", linetype = "dashed", size = 1) +
+  labs(
+    x = "Age",
+    y = "Log(Monthly Income Salary)",
+    subtitle = paste("Peak Age:", round(original_peak_age, 2), 
+                     "95% CI [", 
+                     round(peak_age_ci$percent[4], 2), ",", 
+                     round(peak_age_ci$percent[5], 2), "]")
+  ) +
+  theme_minimal(base_size = 18) +  # Increase base font size
+  theme(
+    plot.title = element_text(face = "bold", size = 20, hjust = 0.5),
+    plot.subtitle = element_text(size = 18, hjust = 0.5, color = "gray40"),
+    axis.title = element_text(size = 18),
+    axis.text = element_text(size = 16),
+    panel.grid.major = element_line(color = "gray85"),
+    panel.grid.minor = element_line(color = "gray90")
+  ) 
+ggsave("3.1PEAKAGE.png", plot = PEAK_AGE, width = 10, height = 7)
+rm(model_salary, peak_age_ci, original_peak_age,age_values,predicted_earnings_P,PEAK_AGE)
 ```
 
 ## 4. The gender earnings GAP
