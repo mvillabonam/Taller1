@@ -840,6 +840,7 @@ training = db2 %>%
 test = db2 %>% 
   filter(!row_number() %in% in_train)
 
+
 for (var in c("maxEducLevel", "estrato1", "oficio2")) {
   training[[var]] <- as.factor(training[[var]])
   test[[var]] <- factor(test[[var]], levels = levels(training[[var]]))
@@ -852,9 +853,13 @@ the previous specifications with at least five (5) additional specifications tha
 explore non-linearities and complexity.
 
 ```{r}
+
+# Previous specifications
 formula_1 = formula(log(impa_oi) ~ age + I(age^2))
 formula_2 = formula(log(impa_oi) ~ female)
 formula_3 = formula(log(impa_oi) ~ female + age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1))
+
+# 5 additional specifications
 
 formula_4 = formula(log(impa_oi) ~ female + age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1) + factor(oficio2))
 
@@ -870,7 +875,6 @@ formula_8 = formula(log(impa_oi) ~ female * factor(maxEducLevel) * factor(estrat
 
 Calculate the predictive performance 
 
-
 ```{r}
 
 formulas = list(formula_1, formula_2, formula_3, formula_4, 
@@ -883,6 +887,10 @@ evaluate_model = function(model) {
   prediction = predict(model, newdata = test)
   
   result = list("RMSE" = RMSE(pred = exp(prediction), obs = test$impa_oi),
+                "MAE" = MAE(pred = exp(prediction), obs = test$impa_oi),
+                "MAPE" = mean(abs((test$impa_oi - exp(prediction)) / test$impa_oi))*100, 
+                "R2" = 1 - sum((test$impa_oi - exp(prediction))^2) / sum((test$impa_oi - mean(test$impa_oi))^2),
+                "R2_log" = 1 - sum((log(test$impa_oi) - prediction)^2) / sum((log(test$impa_oi) - mean(log(test$impa_oi)))^2),
                 "Prediction" = exp(prediction),
                 "Resid" = test$impa_oi-exp(prediction))
   return(result)
@@ -901,84 +909,85 @@ flawed model?
 
 ```{r}
 
-check_model(models[[7]])
-check_model(models[[8]])
+# Assessing best model performance
 
-```
-```{r}
+check_mod_8 = check_model(models[[8]])
 
-residuals = data.frame("resid_7" = result[[7]]$Resid,
-                       "resid_8" = result[[8]]$Resid)
+residuals = data.frame("resid_8" = result[[8]]$Resid)
+
+# Standardized residuals
 
 residuals = residuals |> 
-  mutate(resid_7_std = scale(resid_7), 
-         resid_8_std = scale(resid_8))
+  mutate(resid_8_std = scale(resid_8))
 
-ggplot(residuals, aes(x = resid_7_std)) +
-  geom_histogram(bins = 30, fill = "purple", alpha = 0.5) +
-  geom_vline(xintercept = c(-2, 2), linetype = "dashed", color = "red") +
-  theme_minimal() +
-  labs(title = "Distribution of Standardized Residuals (Model 7)", 
-       x = "Standardized Residual", y = "Count")
-
-ggplot(residuals, aes(x = resid_8_std)) +
-  geom_histogram(bins = 30, fill = "purple", alpha = 0.5) +
+p_1 = ggplot(residuals, aes(x = resid_8_std)) +
+  geom_histogram(bins = 800, fill = "purple", alpha = 0.5, ) +
   geom_vline(xintercept = c(-2, 2), linetype = "dashed", color = "red") +
   theme_minimal() +
   labs(title = "Distribution of Standardized Residuals (Model 8)", 
+       subtitle = "±2σ intervals", 
        x = "Standardized Residual", y = "Count")
+
+ggsave(plot = p_1, filename = "Distribution_residuals.jpg", width = 10, height = 7)
+
 ```
 
+Analysis of outliers
+
 ```{r}
-low_7 = quantile(residuals$resid_7, 0.05)
-up_7 = quantile(residuals$resid_7, 0.95)
 
 low_8 = quantile(residuals$resid_8, 0.05)
 up_8 = quantile(residuals$resid_8, 0.95)
 
 data = test |> 
-  select(impa_oi, female, age, y_total_m, oficio2, estrato1) |> 
-  mutate(pred_7 = result[[7]][["Prediction"]],
-         pred_8 = result[[8]][["Prediction"]],
-         resid_7_std = residuals$resid_7_std,
+  select(impa_oi, female, age, y_total_m, oficio2, oficio, estrato1, informal, maxEducLevel, ingtot) |> 
+  mutate(pred_8 = result[[8]][["Prediction"]],
          resid_8_std = residuals$resid_8_std)
 
-out_7 = data |> filter(abs(resid_7_std) > 2)
-out_8 = data |> filter(abs(resid_8_std) > 2)
+out_8 = data |> filter(resid_8_std > 2 | resid_8_std < -2) |> 
+  arrange(resid_8_std)
 
-
-ggplot(data, aes(x = pred_7, y = resid_7_std)) +
-  geom_point(alpha = 0.5, color = "blue") +
+p_2 = ggplot(data, aes(x = pred_8, y = resid_8_std, color = abs(resid_8_std))) +
+  geom_point(alpha = 0.7) +
   geom_hline(yintercept = c(-2, 2), linetype = "dashed", color = "red") +
+  scale_color_gradient(low = "blue", high = "red") +
   theme_minimal() +
-  labs(title = "Standardized Residuals vs. Fitted Values (Model 7)",
-       x = "Fitted Values (Predicted impa_oi)",
-       y = "Standardized Residuals")
+  labs(title = "Outlier prediction (Model 8)",
+       x = "Fitted Values",
+       y = "Standardized Residuals",
+       color = "Outlier magnitude") +
+  theme(legend.text = element_text(size = 8),  
+        legend.title = element_text(size = 9, hjust = 0.5), 
+        legend.key.size = unit(0.5, "cm"))  
 
-ggplot(data, aes(x = pred_8, y = resid_8_std)) +
-  geom_point(alpha = 0.5, color = "blue") +
-  geom_hline(yintercept = c(-2, 2), linetype = "dashed", color = "red") +
+ggsave(plot = p_2, filename = "resid_vs_fitted.jpg", width = 10, height = 7)
+
+p_3 = ggplot(data, aes(x = as.factor(oficio2), y = resid_8_std)) +
+  geom_boxplot() +
+  coord_flip() +
   theme_minimal() +
-  labs(title = "Standardized Residuals vs. Fitted Values (Model 7)",
-       x = "Fitted Values (Predicted impa_oi)",
-       y = "Standardized Residuals")
+  labs(title = "Outliers by ocupation",
+       x = "Occupation",
+       y = "Standardized residuals")
+
+ggsave(plot = p_3, filename = "out_by_ocup.jpg", width = 10, height = 7)
 
 ```
 LOOCV. For the two models with the lowest predictive error in the previous section, calculate the predictive error using Leave-one-out-cross-validation
 (LOOCV). Compare the results of the test error with those obtained with the
-validation set approach and explore the potential links with the influence statistic. (Note: when attempting this subsection, the calculations can take a long
-time, depending on your coding skills, plan accordingly!)
+validation set approach and explore the potential links with the influence statistic. (Note: when attempting this subsection, the calculations can take a long time, depending on your coding skills, plan accordingly!)
 
 Paralellization:
 
 ```{r}
 
-# Definir el control 
+# Defining control 
 ctrl_par <- trainControl(method = "LOOCV", verboseIter = TRUE, allowParallel = TRUE)
+
+# Defining parallel clusters
 cl <- makeCluster(detectCores() - 1) 
 registerDoParallel(cl)
   
-set.seed(1541)
 train_parallel <- function(formula) {
   
   model <- train(formula, data = db2, method = 'lm', trControl = ctrl_par)
@@ -986,7 +995,6 @@ train_parallel <- function(formula) {
   return(model)
 }
 
-time_par3 <- system.time(mod_par3 <- train_parallel(formula_3))
 time_par7 <- system.time(mod_par7 <- train_parallel(formula_7))
 time_par8 <- system.time(mod_par8 <- train_parallel(formula_8))
 
@@ -996,8 +1004,8 @@ registerDoSEQ()
 print(paste("Tiempo paralelo:", time_par7["elapsed"], "segundos"))
 print(paste("Tiempo paralelo:", time_par8["elapsed"], "segundos"))
 
-mod_par7$results
-mod_par8$results
+# mod_par7$results
+# mod_par8$results
 
 ```
 
@@ -1017,8 +1025,6 @@ loocv_model = function(i, data, model_formula) {
 
   return(rmse)
 }
-
-time_furr3 <- system.time(rmse_mod3 <- future_map_dbl(1:nrow(db2), ~ loocv_model(.x, db2, formula_3)))
 
 time_furr7 <- system.time(rmse_mod7 <- future_map_dbl(1:nrow(db2), ~ loocv_model(.x, db2, formula_7)))
 
@@ -1056,7 +1062,7 @@ y <- model.response(model.frame(full_model))
 beta_hat <- full_model$coefficients
   
 ## Calculate the inverse of  (X'X), call it G_inv
-G_inv<- solve(t(X)%*%X)
+G_inv <- solve(t(X)%*%X)
 
 ## and 1/1-hi
 vec<- 1/(1-hatvalues(full_model))
@@ -1073,8 +1079,9 @@ for (i in 1:N) {
     LOO[i]<-  new_error
   }
   
-  looCV_error <- mean(LOO)
-  sqrt(looCV_error)
+looCV_error <- mean(LOO)
+sqrt(looCV_error)
+
 ```
 
 
