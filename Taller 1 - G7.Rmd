@@ -12,27 +12,28 @@ editor_options:
 gc(rm(list = ls()))
 knitr::opts_chunk$set(echo = TRUE)
 require(pacman)
-p_load(stringr, # html to text
-       tidyverse, # tidy-data
-       skimr, # summary data
-       rvest, # Web scrapping
-       dplyr, # managing tables
-       corrplot,#Correlation plot
-       reshape2, # Long format for table 
-       stargazer, # Latex tables
-       gridExtra, # visualizing missing data
-       furrr, 
-       mosaic, # Bootstrap
-       gridExtra, #multiple graphs
-       boot,
-       car,
-       lmtest,
-       caret, 
-       sandwich,
-       performance,
-       doParallel,
-       future,
-       microbenchmark)
+p_load(
+  stringr,    # HTML to text  
+  tidyverse,  # Tidy data  
+  skimr,      # Data summary  
+  rvest,      # Web scraping  
+  dplyr,      # Table management  
+  corrplot,   # Correlation plot  
+  reshape2,   # Long table format  
+  stargazer,  # LaTeX tables  
+  gridExtra,  # Multiple graphs  
+  furrr,      # Parallel processing  
+  mosaic,     # Bootstrap  
+  boot,       # Resampling  
+  car,        # Regression tools  
+  lmtest,     # Regression tests  
+  caret,      # Machine learning  
+  sandwich,   # Robust SEs  
+  performance,# Model quality  
+  doParallel, # Parallel computing  
+  future,     # Async processing  
+  microbenchmark # Performance test  
+)
 
 ```
 
@@ -672,71 +673,174 @@ stargazer(
 ```
 
 ```{r Peak ages}
+# ------------------------ THE PREDICTED AGE-WAGE PROFILE  ----------------------------------------
+# Split the data by gender and run separate models
+female_data <- db2 %>% filter(female == 1)
+male_data <- db2 %>% filter(female == 0)
 
-# Regression model with age-gender interaction
-peak_ages_model <- lm(log(y_salary_m) ~ age * female + I(age^2) * female + maxEducLevel + informal + estrato1, data = db2)
+# Estimate wage models by gender
+female_model <- lm(log(impa_oi) ~ age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1), 
+                  data = female_data)
+male_model <- lm(log(impa_oi) ~ age + I(age^2) + factor(maxEducLevel) + informal + factor(estrato1), 
+                data = male_data)
 
-# Create a range of ages and genders for prediction
-age_seq <- seq(min(db2$age), max(db2$age), by = 1)
-prediction_data <- expand.grid(age = age_seq, female = c(0, 1))
+# Sequence of ages 
+age_seq <- seq(min(db2$age), max(db2$age), by = 0.5)
 
-# Assign typical values for other variables
-common_educ <- names(sort(table(db2$maxEducLevel), decreasing = TRUE))[1]  # Mode of education
-common_informal <- as.numeric(names(sort(table(db2$informal), decreasing = TRUE))[1])  # Mode of informality
-common_estrato <- as.numeric(names(sort(table(db2$estrato1), decreasing = TRUE))[1])  # Mode of socioeconomic level
+# For factor variables, we need to use the most common level
+female_most_common_educ <- as.numeric(names(sort(table(female_data$maxEducLevel), decreasing = TRUE)[1]))
+male_most_common_educ <- as.numeric(names(sort(table(male_data$maxEducLevel), decreasing = TRUE)[1]))
+female_most_common_estrato <- as.numeric(names(sort(table(female_data$estrato1), decreasing = TRUE)[1]))
+male_most_common_estrato <- as.numeric(names(sort(table(male_data$estrato1), decreasing = TRUE)[1]))
 
-# Add fixed values to prediction_data
-prediction_data$maxEducLevel <- factor(common_educ, levels = levels(db2$maxEducLevel))
-prediction_data$informal <- common_informal
-prediction_data$estrato1 <- common_estrato
+# Create prediction data frames for each gender
+female_pred_data <- data.frame(
+  age = age_seq,
+  maxEducLevel = female_most_common_educ,
+  informal = mean(female_data$informal, na.rm = TRUE),
+  estrato1 = female_most_common_estrato
+)
 
-# Make predictions with confidence intervals
-predictions <- predict(peak_ages_model, newdata = prediction_data, interval = "confidence")
-prediction_data <- cbind(prediction_data, predictions)
+male_pred_data <- data.frame(
+  age = age_seq,
+  maxEducLevel = male_most_common_educ,
+  informal = mean(male_data$informal, na.rm = TRUE),
+  estrato1 = male_most_common_estrato
+)
 
-# Back-transform log wages to actual wages for plotting
-prediction_data <- prediction_data %>%
-  mutate(pred_wage = exp(fit), 
-         lwr_wage = exp(lwr), 
-         upr_wage = exp(upr))
+# Make predictions (log wages)
+female_predictions <- predict(female_model, newdata = female_pred_data, se.fit = TRUE)
+male_predictions <- predict(male_model, newdata = male_pred_data, se.fit = TRUE)
 
+# Create data frames for plotting
+# Back-transform log wages to actual wages
+female_plot_data <- data.frame(
+  age = age_seq,
+  fit_log = female_predictions$fit,
+  fit = exp(female_predictions$fit),  # Back-transform to actual wages
+  lower = exp(female_predictions$fit - 1.96 * female_predictions$se.fit),  # Back-transform lower CI
+  upper = exp(female_predictions$fit + 1.96 * female_predictions$se.fit),  # Back-transform upper CI
+  gender = "Female"
+)
 
-# Plot predicted age-wage profile by gender
-ggplot(prediction_data, aes(x = age, y = pred_wage, color = as.factor(female), fill = as.factor(female))) +
-  geom_line(linewidth = 1) +  # Use linewidth instead of size
-  geom_ribbon(aes(ymin = lwr_wage, ymax = upr_wage), alpha = 0.2) +
-  labs(title = "Predicted Age-Wage Profile by Gender",
-       subtitle = "Includes confidence intervals based on regression estimates",
-       x = "Age",
-       y = "Predicted Wage",
-       color = "Gender",
-       fill = "Gender",
-       caption = "Note: The predicted age-wage profile is estimated using a regression model with interaction terms.\nConfidence intervals reflect the uncertainty of predictions.\nSource: Own estimations based on regression model.") +
-  scale_color_manual(values = c("blue", "pink"), labels = c("Male", "Female")) +
-  scale_fill_manual(values = c("blue", "pink"), labels = c("Male", "Female")) +
-  theme_minimal() +
-  theme(plot.caption = element_text(hjust = 0, size = 10))  # Left-align caption for readability
+male_plot_data <- data.frame(
+  age = age_seq,
+  fit_log = male_predictions$fit,
+  fit = exp(male_predictions$fit),  # Back-transform to actual wages
+  lower = exp(male_predictions$fit - 1.96 * male_predictions$se.fit),  # Back-transform lower CI
+  upper = exp(male_predictions$fit + 1.96 * male_predictions$se.fit),  # Back-transform upper CI
+  gender = "Male"
+)
 
-# Extract coefficients from the model
-coefficients <- coef(peak_ages_model)
-age_coef <- coefficients["age"]
-age_squared_coef <- coefficients["I(age^2)"]
-female_age_coef <- coefficients["age:female"]
-female_age_squared_coef <- coefficients["female:I(age^2)"]
+# Combine data for plotting
+plot_data <- rbind(female_plot_data, male_plot_data)
 
-# Peak ages
-if (all(!is.na(c(age_coef, age_squared_coef, female_age_coef, female_age_squared_coef)))) {
-  peak_age_male <- round(-age_coef / (2 * age_squared_coef))
-  peak_age_female <- round(-(age_coef + female_age_coef) / (2 * (age_squared_coef + female_age_squared_coef)))
-  
-  cat("Peak age for males:", peak_age_male, "\n")
-  cat("Peak age for females:", peak_age_female, "\n")
-} else {
-  cat("Missing coefficients for calculation.\n")
+# ------------------------ PEAK AGE-WAGE BY GENDER  ----------------------------------------
+# The peak age is where the derivative of the wage function with respect to age equals zero
+# For the model log(wage) = β₀ + β₁*age + β₂*age² + ..., the peak age is -β₁/(2*β₂)
+
+# For females
+female_age_coef <- coef(female_model)["age"]
+female_age2_coef <- coef(female_model)["I(age^2)"]
+female_peak_age <- -female_age_coef / (2 * female_age2_coef)
+
+# For males
+male_age_coef <- coef(male_model)["age"]
+male_age2_coef <- coef(male_model)["I(age^2)"]
+male_peak_age <- -male_age_coef / (2 * male_age2_coef)
+
+calculate_peak_age_se <- function(model) {
+  # Extract coefficients
+  b1 <- coef(model)["age"]
+  b2 <- coef(model)["I(age^2)"]
+  vcov_matrix <- vcov(model)
+  var_b1 <- vcov_matrix["age", "age"]
+  var_b2 <- vcov_matrix["I(age^2)", "I(age^2)"]
+  cov_b1b2 <- vcov_matrix["age", "I(age^2)"]
+  grad <- c(-1/(2*b2), b1/(2*b2^2))
+  sub_vcov <- matrix(c(var_b1, cov_b1b2, cov_b1b2, var_b2), nrow = 2)
+  var_peak_age <- t(grad) %*% sub_vcov %*% grad
+  return(sqrt(as.numeric(var_peak_age)))
 }
 
+# Standard errors
+female_peak_age_se <- calculate_peak_age_se(female_model)
+male_peak_age_se <- calculate_peak_age_se(male_model)
+
+# 95% confidence intervals
+female_peak_age_ci <- c(female_peak_age - 1.96 * female_peak_age_se, 
+                         female_peak_age + 1.96 * female_peak_age_se)
+male_peak_age_ci <- c(male_peak_age - 1.96 * male_peak_age_se, 
+                       male_peak_age + 1.96 * male_peak_age_se)
+
+# Data frame
+peak_ages <- data.frame(
+  Gender = c("Female", "Male"),
+  Peak_Age = c(female_peak_age, male_peak_age),
+  SE = c(female_peak_age_se, male_peak_age_se),
+  CI_Lower = c(female_peak_age_ci[1], male_peak_age_ci[1]),
+  CI_Upper = c(female_peak_age_ci[2], male_peak_age_ci[2])
+)
+
+# Get the predicted wages at peak ages
+female_peak_wage_data <- data.frame(
+  age = female_peak_age,
+  maxEducLevel = female_most_common_educ,
+  informal = mean(female_data$informal, na.rm = TRUE),
+  estrato1 = female_most_common_estrato
+)
+
+male_peak_wage_data <- data.frame(
+  age = male_peak_age,
+  maxEducLevel = male_most_common_educ,
+  informal = mean(male_data$informal, na.rm = TRUE),
+  estrato1 = male_most_common_estrato
+)
+
+female_peak_wage <- exp(predict(female_model, newdata = female_peak_wage_data))
+male_peak_wage <- exp(predict(male_model, newdata = male_peak_wage_data))
+
+# The plot including peak ages with back-transformed wages
+grap<- ggplot(plot_data, aes(x = age, y = fit, color = gender, fill = gender)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+  geom_vline(xintercept = female_peak_age, color = "darkred", linetype = "dashed") +
+  geom_vline(xintercept = male_peak_age, color = "darkblue", linetype = "dashed") +
+  annotate("text", x = female_peak_age + 2, y = max(plot_data$fit) * 0.9, 
+           label = paste("Female Peak Age:", round(female_peak_age, 1)), color = "darkred", size = 6) +
+  annotate("text", x = male_peak_age + 2, y = max(plot_data$fit) * 0.8, 
+           label = paste("Male Peak Age:", round(male_peak_age, 1)), color = "darkblue", size = 6) +
+  labs(
+    subtitle = "Dashed lines indicate estimated peak ages",
+    x = "Age",
+    y = "Predicted Wage",
+    color = "Gender",
+    fill = "Gender"
+  ) +
+  theme_minimal() +
+  scale_color_manual(values = c("Female" = "darkred", "Male" = "darkblue")) +
+  scale_fill_manual(values = c("Female" = "darkred", "Male" = "darkblue")) +
+  scale_y_continuous(labels = scales::comma) +
+  theme(
+    plot.subtitle = element_text(size = 25),
+    axis.title.x = element_text(size = 25),
+    axis.title.y = element_text(size = 25),
+    axis.text = element_text(size = 25),
+    legend.title = element_text(size = 25),
+    legend.text = element_text(size = 25)
+  )
+
+ggsave("age_wage_profile.png", plot = grap, width = 20, height = 10)
+# Create a table with peak ages and peak wages
+peak_summary <- data.frame(
+  Gender = c("Female", "Male"),
+  Peak_Age = c(round(female_peak_age, 2), round(male_peak_age, 2)),
+  Peak_Age_CI_Lower = c(round(female_peak_age_ci[1], 2), round(male_peak_age_ci[1], 2)),
+  Peak_Age_CI_Upper = c(round(female_peak_age_ci[2], 2), round(male_peak_age_ci[2], 2)),
+  Peak_Wage = c(round(female_peak_wage, 2), round(male_peak_wage, 2))
+)
+print(peak_summary)
 ```
-The statistical significance of the model is evident from the extremely low p-values associated with both the Breusch-Pagan test for heteroscedasticity and the Durbin-Watson test for autocorrelation, these results indicate strong evidence against the null hypotheses, revealing violations in the homoscedasticity and independence of errors assumptions, respectively. Economically, the model's findings suggest that the gender variable (female) plays a significant role in explaining variations in the log-transformed salary, highlighting potential gender disparities in earnings, however, the presence of heteroscedasticity and autocorrelation implies that traditional inference may be flawed, necessitating robust econometric techniques to ensure the validity of the estimated effects.
 
 ## 5. Predicting earnings
 
